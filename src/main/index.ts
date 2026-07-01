@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, dialog } from 'electron'
 import { join } from 'node:path'
 import { Db } from '../core/db.js'
 import { ClaudeProvider } from '../core/claudeProvider.js'
@@ -37,6 +37,10 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
+  .catch((e) => {
+    dialog.showErrorBox('Kumpas failed to start', e instanceof Error ? e.message : String(e))
+    app.quit()
+  })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

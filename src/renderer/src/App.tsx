@@ -19,9 +19,9 @@ export default function App() {
 
   async function addProject() {
     setError(null)
-    const path = await api.pickFolder()
-    if (!path) return
     try {
+      const path = await api.pickFolder()
+      if (!path) return
       const p = await api.createProject(baseName(path), path)
       await refresh()
       setSelected(p.id)
@@ -55,7 +55,7 @@ export default function App() {
         {selected === null ? (
           <p className="empty">Add a git project to begin.</p>
         ) : (
-          <Board projectId={selected} />
+          <Board key={selected} projectId={selected} />
         )}
       </main>
     </div>

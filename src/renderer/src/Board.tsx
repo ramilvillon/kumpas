@@ -123,6 +123,7 @@ function TicketCard({
         {ticket.title}
         {ticket.blocked ? <span className="badge">blocked</span> : null}
       </div>
+      {ticket.description && <div className="card-desc">{ticket.description}</div>}
       <div className="card-controls">
         <label>
           Move
