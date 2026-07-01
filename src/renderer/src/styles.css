@@ -1,2 +1,12 @@
 :root { font-family: system-ui, sans-serif; }
 body { margin: 0; }
+.app { display: flex; height: 100vh; }
+.sidebar { width: 220px; border-right: 1px solid #ddd; padding: 8px; box-sizing: border-box; }
+.sidebar-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+.sidebar ul { list-style: none; padding: 0; margin: 8px 0; }
+.sidebar li { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.sidebar li.active { background: #e8f0fe; }
+.main { flex: 1; overflow: auto; padding: 12px; }
+.empty { color: #888; }
+.error { color: #b00020; font-size: 12px; margin: 6px 0; }
+button { cursor: pointer; }
