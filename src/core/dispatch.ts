@@ -1,0 +1,68 @@
+import type { ProviderName, AgentProvider, Run } from './types.js'
+import type { Db } from './db.js'
+import { assemblePrompt } from './prompt.js'
+import { captureDiff as realCaptureDiff } from './git.js'
+import { readAttachmentForPrompt } from './attachments.js'
+
+export interface DispatchDeps {
+  db: Db
+  providers: Partial<Record<ProviderName, AgentProvider>>
+  captureDiff?: (repoPath: string) => string
+}
+
+export async function dispatch(
+  deps: DispatchDeps, ticketId: number, agentId: number,
+): Promise<Run> {
+  const { db, providers } = deps
+  const captureDiff = deps.captureDiff ?? realCaptureDiff
+
+  const ticket = db.getTicket(ticketId)
+  const agent = db.getAgent(agentId)
+  const project = db.getProject(ticket.projectId)
+  const attachments = db.listAttachments(ticketId).map((a) => readAttachmentForPrompt(a))
+  const prompt = assemblePrompt(ticket, db.listComments(ticketId), attachments)
+
+  const todoCol = db.getColumnByRole(ticket.projectId, 'todo')
+  const inProgressCol = db.getColumnByRole(ticket.projectId, 'in_progress')
+  const reviewCol = db.getColumnByRole(ticket.projectId, 'review')
+
+  db.setTicketColumn(ticketId, inProgressCol.id)
+
+  const startedAt = Date.now()
+  try {
+    const provider = providers[agent.provider]
+    if (!provider) {
+      throw new Error(`Provider '${agent.provider}' is not available in this build`)
+    }
+    const result = await provider.run(prompt, project.repoPath, agent)
+
+    if (result.resultText.trimStart().startsWith('BLOCKED:')) {
+      db.addComment(ticketId, agent.name, result.resultText, 'question')
+      db.setTicketBlocked(ticketId, true)
+      db.setTicketColumn(ticketId, todoCol.id)
+      return db.createRun({
+        ticketId, agentId, status: 'blocked',
+        tokensIn: result.tokensIn, tokensOut: result.tokensOut,
+        durationMs: Date.now() - startedAt, diff: '',
+      })
+    }
+
+    const diff = captureDiff(project.repoPath)
+    db.addComment(ticketId, agent.name, result.resultText, 'note')
+    db.setTicketBlocked(ticketId, false)
+    db.setTicketColumn(ticketId, reviewCol.id)
+    return db.createRun({
+      ticketId, agentId, status: 'success',
+      tokensIn: result.tokensIn, tokensOut: result.tokensOut,
+      durationMs: Date.now() - startedAt, diff,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    db.addComment(ticketId, agent.name, `Run failed: ${message}`, 'note')
+    db.setTicketColumn(ticketId, todoCol.id)
+    return db.createRun({
+      ticketId, agentId, status: 'failed', tokensIn: 0, tokensOut: 0,
+      durationMs: Date.now() - startedAt, diff: '',
+    })
+  }
+}
