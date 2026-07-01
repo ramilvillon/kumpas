@@ -30,6 +30,8 @@ test('getColumnByRole finds the tagged column and throws when absent', () => {
   const other = db.createProject('other', '/repo/other')
   // roles are scoped per project — this project's review column is distinct
   expect(db.getColumnByRole(other.id, 'review').projectId).toBe(other.id)
+  // nonexistent project has no columns, so any role query throws
+  expect(() => db.getColumnByRole(9999, 'todo')).toThrow()
 })
 
 test('new ticket lands in the todo column, unblocked; column and blocked update', () => {
