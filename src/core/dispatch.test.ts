@@ -74,6 +74,19 @@ test('text attachment content reaches the agent prompt', async () => {
   expect(seenPrompt).toContain('secret context 123')
 })
 
+test('missing attachment file yields a failed run instead of a rejection', async () => {
+  const { db, projectId, ticketId, agentId } = setup()
+  db.createAttachment({
+    ticketId, filename: 'gone.txt', kind: 'text', path: `/no/such/file-${Date.now()}.txt`,
+  })
+  const provider: AgentProvider = {
+    run: async () => ({ resultText: 'implemented', tokensIn: 10, tokensOut: 3 }),
+  }
+  const run = await dispatch({ db, providers: { claude: provider }, captureDiff: fakeDiff }, ticketId, agentId)
+  expect(run.status).toBe('failed')
+  expect(db.getTicket(ticketId).columnId).toBe(db.getColumnByRole(projectId, 'todo').id)
+})
+
 test('an provider this build lacks (e.g. agy in v1) yields a failed run with a clear message', async () => {
   const { db, projectId, ticketId } = setup()
   const agy = db.createAgent('Coder', 'agy', 'gemini-x', 'sp', 'edit')

@@ -19,8 +19,6 @@ export async function dispatch(
   const ticket = db.getTicket(ticketId)
   const agent = db.getAgent(agentId)
   const project = db.getProject(ticket.projectId)
-  const attachments = db.listAttachments(ticketId).map((a) => readAttachmentForPrompt(a))
-  const prompt = assemblePrompt(ticket, db.listComments(ticketId), attachments)
 
   const todoCol = db.getColumnByRole(ticket.projectId, 'todo')
   const inProgressCol = db.getColumnByRole(ticket.projectId, 'in_progress')
@@ -30,6 +28,9 @@ export async function dispatch(
 
   const startedAt = Date.now()
   try {
+    const attachments = db.listAttachments(ticketId).map((a) => readAttachmentForPrompt(a))
+    const prompt = assemblePrompt(ticket, db.listComments(ticketId), attachments)
+
     const provider = providers[agent.provider]
     if (!provider) {
       throw new Error(`Provider '${agent.provider}' is not available in this build`)
