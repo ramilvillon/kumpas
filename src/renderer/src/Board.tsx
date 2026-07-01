@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Column, Ticket } from '../../core/types'
+import type { Agent, Column, Run, Ticket } from '../../core/types'
 import { api } from './api'
 
 export function Board({ projectId }: { projectId: number }) {
   const [columns, setColumns] = useState<Column[]>([])
   const [tickets, setTickets] = useState<Ticket[]>([])
+  const [agents, setAgents] = useState<Agent[]>([])
 
   const refresh = useCallback(async () => {
-    const [cols, tks] = await Promise.all([api.listColumns(projectId), api.listTickets(projectId)])
+    const [cols, tks, ags] = await Promise.all([
+      api.listColumns(projectId),
+      api.listTickets(projectId),
+      api.listAgents(),
+    ])
     setColumns(cols)
     setTickets(tks)
+    setAgents(ags)
   }, [projectId])
 
   useEffect(() => {
@@ -26,7 +32,7 @@ export function Board({ projectId }: { projectId: number }) {
             {tickets
               .filter((t) => t.columnId === col.id)
               .map((t) => (
-                <TicketCard key={t.id} ticket={t} columns={columns} onChanged={refresh} />
+                <TicketCard key={t.id} ticket={t} columns={columns} agents={agents} onChanged={refresh} />
               ))}
           </div>
         ))}
@@ -60,18 +66,41 @@ function NewTicketForm({ projectId, onCreated }: { projectId: number; onCreated:
 function TicketCard({
   ticket,
   columns,
+  agents,
   onChanged,
 }: {
   ticket: Ticket
   columns: Column[]
+  agents: Agent[]
   onChanged: () => void
 }) {
+  const [agentId, setAgentId] = useState<number | ''>(agents[0]?.id ?? '')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+
   async function move(columnId: number) {
     await api.moveTicket(ticket.id, columnId)
     onChanged()
   }
+
+  async function dispatch() {
+    if (agentId === '') return
+    setBusy(true)
+    setResult(null)
+    try {
+      const run = await api.dispatch(ticket.id, Number(agentId))
+      const secs = (run.durationMs / 1000).toFixed(1)
+      setResult(`${run.status} · ${run.tokensIn + run.tokensOut} tok · ${secs}s`)
+    } catch (e) {
+      setResult(`error: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setBusy(false)
+      onChanged()
+    }
+  }
+
   return (
-    <div className="card">
+    <div className={`card${busy ? ' busy' : ''}`}>
       <div className="card-title">
         {ticket.title}
         {ticket.blocked ? <span className="badge">blocked</span> : null}
@@ -79,7 +108,7 @@ function TicketCard({
       <div className="card-controls">
         <label>
           Move
-          <select value={ticket.columnId} onChange={(e) => move(Number(e.target.value))}>
+          <select value={ticket.columnId} onChange={(e) => move(Number(e.target.value))} disabled={busy}>
             {columns.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -87,8 +116,21 @@ function TicketCard({
             ))}
           </select>
         </label>
-        {/* Dispatch control added in Task 6 */}
+        <label>
+          Agent
+          <select value={agentId} onChange={(e) => setAgentId(Number(e.target.value))} disabled={busy}>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button onClick={dispatch} disabled={busy || agentId === ''}>
+          {busy ? 'Running…' : 'Dispatch'}
+        </button>
       </div>
+      {result && <div className="card-result">{result}</div>}
     </div>
   )
 }
