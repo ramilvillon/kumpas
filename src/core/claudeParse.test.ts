@@ -24,9 +24,15 @@ test('throws a clear error on non-json', () => {
   expect(() => parseClaudeResult('not json')).toThrow(/parse/i)
 })
 
+test('throws a clear error on non-object json', () => {
+  expect(() => parseClaudeResult('null')).toThrow(/parse/i)
+})
+
 test('defaults missing token fields to 0', () => {
   const r = parseClaudeResult(JSON.stringify({ result: 'ok' }))
   expect(r.tokensIn).toBe(0)
   expect(r.tokensOut).toBe(0)
   expect(r.resultText).toBe('ok')
+  expect(r.costUsd).toBeUndefined()
+  expect(r.sessionId).toBeUndefined()
 })

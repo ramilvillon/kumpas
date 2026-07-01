@@ -7,6 +7,9 @@ export function parseClaudeResult(stdout: string): RunResult {
   } catch {
     throw new Error(`Failed to parse claude output as JSON: ${stdout.slice(0, 200)}`)
   }
+  if (raw === null || typeof raw !== 'object') {
+    throw new Error(`Failed to parse claude output as JSON: ${stdout.slice(0, 200)}`)
+  }
   const usage = raw.usage ?? {}
   return {
     resultText: String(raw.result ?? ''),
