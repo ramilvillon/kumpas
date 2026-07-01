@@ -6,6 +6,8 @@ export function Board({ projectId }: { projectId: number }) {
   const [columns, setColumns] = useState<Column[]>([])
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
+  const [busyTicketId, setBusyTicketId] = useState<number | null>(null)
+  const [results, setResults] = useState<Record<number, string>>({})
 
   const refresh = useCallback(async () => {
     const [cols, tks, ags] = await Promise.all([
@@ -22,6 +24,25 @@ export function Board({ projectId }: { projectId: number }) {
     refresh()
   }, [refresh])
 
+  async function dispatchTicket(ticketId: number, agentId: number) {
+    setBusyTicketId(ticketId)
+    setResults((r) => {
+      const n = { ...r }
+      delete n[ticketId]
+      return n
+    })
+    try {
+      const run: Run = await api.dispatch(ticketId, agentId)
+      const secs = (run.durationMs / 1000).toFixed(1)
+      setResults((r) => ({ ...r, [ticketId]: `${run.status} · ${run.tokensIn + run.tokensOut} tok · ${secs}s` }))
+    } catch (e) {
+      setResults((r) => ({ ...r, [ticketId]: `error: ${e instanceof Error ? e.message : String(e)}` }))
+    } finally {
+      setBusyTicketId(null)
+      refresh()
+    }
+  }
+
   return (
     <div className="board">
       <NewTicketForm projectId={projectId} onCreated={refresh} />
@@ -32,7 +53,16 @@ export function Board({ projectId }: { projectId: number }) {
             {tickets
               .filter((t) => t.columnId === col.id)
               .map((t) => (
-                <TicketCard key={t.id} ticket={t} columns={columns} agents={agents} onChanged={refresh} />
+                <TicketCard
+                  key={t.id}
+                  ticket={t}
+                  columns={columns}
+                  agents={agents}
+                  busy={busyTicketId === t.id}
+                  result={results[t.id] ?? null}
+                  onDispatch={dispatchTicket}
+                  onChanged={refresh}
+                />
               ))}
           </div>
         ))}
@@ -67,36 +97,24 @@ function TicketCard({
   ticket,
   columns,
   agents,
+  busy,
+  result,
+  onDispatch,
   onChanged,
 }: {
   ticket: Ticket
   columns: Column[]
   agents: Agent[]
+  busy: boolean
+  result: string | null
+  onDispatch: (ticketId: number, agentId: number) => void
   onChanged: () => void
 }) {
   const [agentId, setAgentId] = useState<number | ''>(agents[0]?.id ?? '')
-  const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<string | null>(null)
 
   async function move(columnId: number) {
     await api.moveTicket(ticket.id, columnId)
     onChanged()
-  }
-
-  async function dispatch() {
-    if (agentId === '') return
-    setBusy(true)
-    setResult(null)
-    try {
-      const run = await api.dispatch(ticket.id, Number(agentId))
-      const secs = (run.durationMs / 1000).toFixed(1)
-      setResult(`${run.status} · ${run.tokensIn + run.tokensOut} tok · ${secs}s`)
-    } catch (e) {
-      setResult(`error: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setBusy(false)
-      onChanged()
-    }
   }
 
   return (
@@ -126,7 +144,12 @@ function TicketCard({
             ))}
           </select>
         </label>
-        <button onClick={dispatch} disabled={busy || agentId === ''}>
+        <button
+          onClick={() => {
+            if (agentId !== '') onDispatch(ticket.id, Number(agentId))
+          }}
+          disabled={busy || agentId === ''}
+        >
           {busy ? 'Running…' : 'Dispatch'}
         </button>
       </div>
