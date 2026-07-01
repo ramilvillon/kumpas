@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdtempSync as mkdtemp2 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
-import { captureDiff } from './git.js'
+import { captureDiff, isGitRepo } from './git.js'
 
 function newRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), 'kumpas-'))
@@ -34,4 +34,11 @@ test('captures a newly created untracked file', () => {
 test('returns empty string when nothing changed', () => {
   const dir = newRepo()
   expect(captureDiff(dir).trim()).toBe('')
+})
+
+test('isGitRepo is true inside a repo, false outside', () => {
+  const repo = newRepo()
+  expect(isGitRepo(repo)).toBe(true)
+  const plain = mkdtemp2(join(tmpdir(), 'kumpas-plain-'))
+  expect(isGitRepo(plain)).toBe(false)
 })

@@ -120,6 +120,12 @@ export class Db {
       .get(id) as Project
   }
 
+  listProjects(): Project[] {
+    return this.db
+      .prepare('SELECT id, name, repo_path AS repoPath FROM projects ORDER BY id ASC')
+      .all() as Project[]
+  }
+
   listColumns(projectId: number): Column[] {
     return this.db
       .prepare(
@@ -158,6 +164,16 @@ export class Db {
          FROM tickets WHERE id = ?`,
       )
       .get(id) as Ticket
+  }
+
+  listTickets(projectId: number): Ticket[] {
+    return this.db
+      .prepare(
+        `SELECT id, project_id AS projectId, title, description,
+                column_id AS columnId, blocked
+         FROM tickets WHERE project_id = ? ORDER BY id ASC`,
+      )
+      .all(projectId) as Ticket[]
   }
 
   setTicketColumn(id: number, columnId: number): void {
@@ -210,6 +226,16 @@ export class Db {
          FROM agents WHERE id = ?`,
       )
       .get(id) as Agent
+  }
+
+  listAgents(): Agent[] {
+    return this.db
+      .prepare(
+        `SELECT id, name, provider, model, system_prompt AS systemPrompt,
+                permission_level AS permissionLevel
+         FROM agents ORDER BY id ASC`,
+      )
+      .all() as Agent[]
   }
 
   createRun(r: {

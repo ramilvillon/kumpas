@@ -101,3 +101,18 @@ test('an attachment must belong to exactly one of a ticket or a comment', () => 
   const db = fresh()
   expect(() => db.createAttachment({ filename: 'x', kind: 'text', path: '/p' })).toThrow()
 })
+
+test('listProjects / listTickets / listAgents return scoped, ordered rows', () => {
+  const db = fresh()
+  const p1 = db.createProject('a', '/r/a')
+  const p2 = db.createProject('b', '/r/b')
+  db.createTicket(p1.id, 't1', 'x')
+  db.createTicket(p1.id, 't2', 'x')
+  db.createTicket(p2.id, 't3', 'x')
+  db.createAgent('Dev', 'claude', 'claude-sonnet-5', 'sp', 'edit')
+
+  expect(db.listProjects().map((p) => p.name)).toEqual(['a', 'b'])
+  expect(db.listTickets(p1.id).map((t) => t.title)).toEqual(['t1', 't2'])
+  expect(db.listTickets(p2.id).map((t) => t.title)).toEqual(['t3'])
+  expect(db.listAgents().map((a) => a.name)).toEqual(['Dev'])
+})
