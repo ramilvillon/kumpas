@@ -96,3 +96,8 @@ test('attachments on a ticket and on its comments list together', () => {
   db.createAttachment({ commentId: c.id, filename: 'err.log', kind: 'text', path: '/store/2' })
   expect(db.listAttachments(t.id).map((a) => a.filename)).toEqual(['spec.md', 'err.log'])
 })
+
+test('an attachment must belong to exactly one of a ticket or a comment', () => {
+  const db = fresh()
+  expect(() => db.createAttachment({ filename: 'x', kind: 'text', path: '/p' })).toThrow()
+})

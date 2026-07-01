@@ -35,3 +35,8 @@ test('throws when the CLI exits non-zero', async () => {
   })
   await expect(provider.run('x', '/repo', role)).rejects.toThrow(/boom/)
 })
+
+test('a missing CLI binary surfaces a diagnostic error', async () => {
+  const provider = new ClaudeProvider({ binary: 'kumpas-no-such-binary-xyz' })
+  await expect(provider.run('x', process.cwd(), role)).rejects.toThrow(/ENOENT|no-such-binary/i)
+})

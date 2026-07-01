@@ -16,6 +16,11 @@ export async function dispatch(
   const { db, providers } = deps
   const captureDiff = deps.captureDiff ?? realCaptureDiff
 
+  // ponytail: these lookups run before the try, so a stale ticket/agent id or a
+  // project missing a role column would reject rather than record a failed run —
+  // unreachable in v1 (ids come from the app, the 3 role columns are always
+  // seeded, no column-deletion path yet); harden when Plan 2 adds column
+  // editing/deletion.
   const ticket = db.getTicket(ticketId)
   const agent = db.getAgent(agentId)
   const project = db.getProject(ticket.projectId)

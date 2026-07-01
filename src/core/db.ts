@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS attachments (
   filename TEXT NOT NULL,
   kind TEXT NOT NULL,
   path TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CHECK ((ticket_id IS NULL) <> (comment_id IS NULL))
 );
 `
 
@@ -99,14 +100,17 @@ export class Db {
   }
 
   createProject(name: string, repoPath: string): Project {
-    const info = this.db
-      .prepare('INSERT INTO projects (name, repo_path) VALUES (?, ?)')
-      .run(name, repoPath)
-    const id = Number(info.lastInsertRowid)
-    const insertCol = this.db.prepare(
-      'INSERT INTO columns (project_id, name, position, role) VALUES (?, ?, ?, ?)',
-    )
-    DEFAULT_COLUMNS.forEach((c, i) => insertCol.run(id, c.name, i, c.role))
+    const id = this.db.transaction(() => {
+      const info = this.db
+        .prepare('INSERT INTO projects (name, repo_path) VALUES (?, ?)')
+        .run(name, repoPath)
+      const projectId = Number(info.lastInsertRowid)
+      const insertCol = this.db.prepare(
+        'INSERT INTO columns (project_id, name, position, role) VALUES (?, ?, ?, ?)',
+      )
+      DEFAULT_COLUMNS.forEach((c, i) => insertCol.run(projectId, c.name, i, c.role))
+      return projectId
+    })()
     return this.getProject(id)
   }
 

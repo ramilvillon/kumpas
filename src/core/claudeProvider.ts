@@ -9,7 +9,11 @@ export type SpawnFn = (
 const defaultSpawn: SpawnFn = (cmd, args, cwd, input) =>
   new Promise((resolve) => {
     const child = execFile(cmd, args, { cwd, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
-      resolve({ stdout, stderr, code: err && typeof err.code === 'number' ? err.code : err ? 1 : 0 })
+      resolve({
+        stdout,
+        stderr: stderr || (err && typeof err.code !== 'number' ? err.message : ''),
+        code: err && typeof err.code === 'number' ? err.code : err ? 1 : 0,
+      })
     })
     child.stdin?.end(input)
   })
