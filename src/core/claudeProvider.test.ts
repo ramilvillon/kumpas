@@ -29,6 +29,28 @@ test('passes prompt, cwd, and model to the CLI and returns parsed result', async
   expect(seen.input).toContain('do the thing')
 })
 
+test('maps permissionLevel to --permission-mode (edit → acceptEdits, read → none)', async () => {
+  const capture = () => {
+    let seen: string[] = []
+    const provider = new ClaudeProvider({
+      spawn: async (_cmd, args) => {
+        seen = args
+        return { stdout: okJson, stderr: '', code: 0 }
+      },
+    })
+    return { provider, args: () => seen }
+  }
+
+  const edit = capture()
+  await edit.provider.run('x', '/repo', role) // role.permissionLevel === 'edit'
+  expect(edit.args()).toContain('--permission-mode')
+  expect(edit.args()).toContain('acceptEdits')
+
+  const reader = capture()
+  await reader.provider.run('x', '/repo', { ...role, permissionLevel: 'read' })
+  expect(reader.args()).not.toContain('--permission-mode')
+})
+
 test('throws when the CLI exits non-zero', async () => {
   const provider = new ClaudeProvider({
     spawn: async () => ({ stdout: '', stderr: 'boom', code: 1 }),

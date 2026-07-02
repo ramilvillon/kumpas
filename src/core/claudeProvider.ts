@@ -18,6 +18,19 @@ const defaultSpawn: SpawnFn = (cmd, args, cwd, input) =>
     child.stdin?.end(input)
   })
 
+// Maps a role's permissionLevel to Claude's --permission-mode. Without this,
+// headless `claude -p` denies the Write/Edit tools (no interactive approval)
+// and the agent blocks instead of implementing. 'edit' → acceptEdits (auto-
+// approve file writes + common fs commands); anything else (e.g. 'read') →
+// no flag (read-only; reviewer just reads and comments).
+// Deliberately NO 'bypassPermissions' mapping: it disables every safety check
+// (auto-runs bash/network unattended) and must not be reachable from plain
+// role config. If full autonomy is ever genuinely needed, gate it behind an
+// explicit env opt-in AND a sandbox check — not a static map entry.
+const PERMISSION_MODE: Record<string, string> = {
+  edit: 'acceptEdits',
+}
+
 export class ClaudeProvider implements AgentProvider {
   private binary: string
   private spawn: SpawnFn
@@ -35,6 +48,8 @@ export class ClaudeProvider implements AgentProvider {
       '--model', role.model,
       '--append-system-prompt', role.systemPrompt,
     ]
+    const mode = PERMISSION_MODE[role.permissionLevel]
+    if (mode) args.push('--permission-mode', mode)
     const { stdout, stderr, code } = await this.spawn(this.binary, args, repoPath, prompt)
     if (code !== 0) {
       throw new Error(`claude exited with code ${code}: ${stderr || stdout}`)
