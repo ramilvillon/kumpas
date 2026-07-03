@@ -35,8 +35,17 @@ export function registerIpc(
   ipcMain.handle(CHANNELS.dispatch, (_e, ticketId: number, agentId: number) =>
     dispatch({ db, providers }, ticketId, agentId),
   )
-  ipcMain.handle(CHANNELS.getSetting, (_e, key: string) => db.getSetting(key))
-  ipcMain.handle(CHANNELS.setSetting, (_e, key: string, value: string) =>
-    db.setSetting(key, value),
-  )
+  const RENDERER_SETTINGS = new Set(['theme'])
+  ipcMain.handle(CHANNELS.getSetting, (_e, key: string) => {
+    if (!RENDERER_SETTINGS.has(key)) {
+      throw new Error(`setting '${key}' is not renderer-accessible`)
+    }
+    return db.getSetting(key)
+  })
+  ipcMain.handle(CHANNELS.setSetting, (_e, key: string, value: string) => {
+    if (!RENDERER_SETTINGS.has(key)) {
+      throw new Error(`setting '${key}' is not renderer-accessible`)
+    }
+    return db.setSetting(key, value)
+  })
 }

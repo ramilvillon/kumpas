@@ -23,7 +23,7 @@ function useTheme() {
     toggle: () =>
       setDark((d) => {
         const next = !d
-        api.setSetting('theme', next ? 'dark' : 'light')
+        api.setSetting('theme', next ? 'dark' : 'light').catch(console.error)
         return next
       }),
   }
