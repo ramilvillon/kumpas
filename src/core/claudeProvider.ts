@@ -20,15 +20,24 @@ const defaultSpawn: SpawnFn = (cmd, args, cwd, input) =>
 
 // Maps a role's permissionLevel to Claude's --permission-mode. Without this,
 // headless `claude -p` denies the Write/Edit tools (no interactive approval)
-// and the agent blocks instead of implementing. 'edit' → acceptEdits (auto-
-// approve file writes + common fs commands); anything else (e.g. 'read') →
-// no flag (read-only; reviewer just reads and comments).
-// Deliberately NO 'bypassPermissions' mapping: it disables every safety check
-// (auto-runs bash/network unattended) and must not be reachable from plain
-// role config. If full autonomy is ever genuinely needed, gate it behind an
-// explicit env opt-in AND a sandbox check — not a static map entry.
+// and the agent blocks instead of implementing.
+//   read → default      reads only (reviewer: reads the diff and comments)
+//   edit → acceptEdits   + file writes and common filesystem commands
+//   auto → auto          does everything, but a model safety-classifier
+//                        approves/denies each tool call (autonomous, supervised)
+//   plan → plan          read-only exploration, no edits
+// A permissionLevel NOT listed here (e.g. 'inherit') passes NO --permission-mode
+// flag, so Claude falls back to the user's ~/.claude/settings.json defaultMode.
+// Deliberately NO 'bypassPermissions' mapping: it disables EVERY safety check
+// (auto-runs bash/network unattended) and must not be reachable from plain role
+// config. If it's ever genuinely needed, gate it behind an explicit env opt-in
+// AND a sandbox check — not a static map entry. ('auto' is safe to expose here
+// precisely because it keeps the classifier checks that bypass removes.)
 const PERMISSION_MODE: Record<string, string> = {
+  read: 'default',
   edit: 'acceptEdits',
+  auto: 'auto',
+  plan: 'plan',
 }
 
 export class ClaudeProvider implements AgentProvider {

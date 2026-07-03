@@ -27,7 +27,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   const db = new Db(join(app.getPath('userData'), 'kumpas.db'))
   if (db.listAgents().length === 0) {
-    db.createAgent('Developer', 'claude', 'claude-sonnet-5', 'You are a careful software developer. Implement the ticket.', 'edit')
+    db.createAgent('Developer', 'claude', 'claude-sonnet-5', 'You are a careful software developer. Implement the ticket.', 'auto')
     db.createAgent('Reviewer', 'claude', 'claude-sonnet-5', 'You are a code reviewer. Review the diff and leave comments.', 'read')
   }
   registerIpc(db, { claude: new ClaudeProvider() })

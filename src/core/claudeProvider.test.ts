@@ -29,8 +29,8 @@ test('passes prompt, cwd, and model to the CLI and returns parsed result', async
   expect(seen.input).toContain('do the thing')
 })
 
-test('maps permissionLevel to --permission-mode (edit → acceptEdits, read → none)', async () => {
-  const capture = () => {
+test('maps permissionLevel to --permission-mode; unknown levels inherit (no flag)', async () => {
+  const modeFor = async (level: string) => {
     let seen: string[] = []
     const provider = new ClaudeProvider({
       spawn: async (_cmd, args) => {
@@ -38,17 +38,19 @@ test('maps permissionLevel to --permission-mode (edit → acceptEdits, read → 
         return { stdout: okJson, stderr: '', code: 0 }
       },
     })
-    return { provider, args: () => seen }
+    await provider.run('x', '/repo', { ...role, permissionLevel: level })
+    const i = seen.indexOf('--permission-mode')
+    return i === -1 ? null : seen[i + 1]
   }
 
-  const edit = capture()
-  await edit.provider.run('x', '/repo', role) // role.permissionLevel === 'edit'
-  expect(edit.args()).toContain('--permission-mode')
-  expect(edit.args()).toContain('acceptEdits')
-
-  const reader = capture()
-  await reader.provider.run('x', '/repo', { ...role, permissionLevel: 'read' })
-  expect(reader.args()).not.toContain('--permission-mode')
+  expect(await modeFor('edit')).toBe('acceptEdits')
+  expect(await modeFor('auto')).toBe('auto')
+  expect(await modeFor('read')).toBe('default')
+  expect(await modeFor('plan')).toBe('plan')
+  // unlisted level → no flag → Claude uses its own settings defaultMode
+  expect(await modeFor('inherit')).toBeNull()
+  // bypassPermissions is intentionally NOT reachable from role config
+  expect(await modeFor('bypassPermissions')).toBeNull()
 })
 
 test('throws when the CLI exits non-zero', async () => {
