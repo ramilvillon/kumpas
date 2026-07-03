@@ -12,6 +12,8 @@ const api: KumpasApi = {
   moveTicket: (ticketId, columnId) => ipcRenderer.invoke(CHANNELS.moveTicket, ticketId, columnId),
   listAgents: () => ipcRenderer.invoke(CHANNELS.listAgents),
   dispatch: (ticketId, agentId) => ipcRenderer.invoke(CHANNELS.dispatch, ticketId, agentId),
+  getSetting: (key) => ipcRenderer.invoke(CHANNELS.getSetting, key),
+  setSetting: (key, value) => ipcRenderer.invoke(CHANNELS.setSetting, key, value),
 }
 
 contextBridge.exposeInMainWorld('kumpas', api)

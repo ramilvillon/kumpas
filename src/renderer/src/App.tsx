@@ -6,16 +6,27 @@ import { Board } from './Board'
 import { Button } from '@/components/ui/button'
 
 function useTheme() {
-  const [dark, setDark] = useState(() => {
-    const saved = localStorage.getItem('theme')
-    if (saved) return saved === 'dark'
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
-  })
+  const [dark, setDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
+
+  useEffect(() => {
+    api.getSetting('theme').then((saved) => {
+      if (saved === 'dark' || saved === 'light') setDark(saved === 'dark')
+    })
+  }, [])
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
-    localStorage.setItem('theme', dark ? 'dark' : 'light')
   }, [dark])
-  return { dark, toggle: () => setDark((d) => !d) }
+
+  return {
+    dark,
+    toggle: () =>
+      setDark((d) => {
+        const next = !d
+        api.setSetting('theme', next ? 'dark' : 'light')
+        return next
+      }),
+  }
 }
 
 export default function App() {

@@ -10,6 +10,8 @@ export interface KumpasApi {
   moveTicket(ticketId: number, columnId: number): Promise<void>
   listAgents(): Promise<Agent[]>
   dispatch(ticketId: number, agentId: number): Promise<Run>
+  getSetting(key: string): Promise<string | null>
+  setSetting(key: string, value: string): Promise<void>
 }
 
 // One channel string per method; keys must match KumpasApi method names.
@@ -23,4 +25,6 @@ export const CHANNELS: Record<keyof KumpasApi, string> = {
   moveTicket: 'tickets:move',
   listAgents: 'agents:list',
   dispatch: 'dispatch:run',
+  getSetting: 'settings:get',
+  setSetting: 'settings:set',
 }

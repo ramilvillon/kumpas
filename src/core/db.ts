@@ -67,7 +67,10 @@ CREATE TABLE IF NOT EXISTS attachments (
 // Ordered migrations: index i brings a DB from user_version i to i+1.
 // v1 = the initial schema above. Ship future schema changes by APPENDING an
 // ALTER string as a new element — never edit an already-released migration.
-const MIGRATIONS: string[] = [SCHEMA]
+const MIGRATIONS: string[] = [
+  SCHEMA,
+  'CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);',
+]
 
 const DEFAULT_COLUMNS: { name: string; role: ColumnRole | null }[] = [
   { name: 'Backlog', role: 'todo' },
@@ -291,5 +294,21 @@ export class Db {
          ORDER BY id ASC`,
       )
       .all(ticketId, ticketId) as Attachment[]
+  }
+
+  getSetting(key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
+      | { value: string }
+      | undefined
+    return row?.value ?? null
+  }
+
+  setSetting(key: string, value: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO settings (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(key, value)
   }
 }

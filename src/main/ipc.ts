@@ -35,4 +35,8 @@ export function registerIpc(
   ipcMain.handle(CHANNELS.dispatch, (_e, ticketId: number, agentId: number) =>
     dispatch({ db, providers }, ticketId, agentId),
   )
+  ipcMain.handle(CHANNELS.getSetting, (_e, key: string) => db.getSetting(key))
+  ipcMain.handle(CHANNELS.setSetting, (_e, key: string, value: string) =>
+    db.setSetting(key, value),
+  )
 }

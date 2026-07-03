@@ -102,6 +102,24 @@ test('an attachment must belong to exactly one of a ticket or a comment', () => 
   expect(() => db.createAttachment({ filename: 'x', kind: 'text', path: '/p' })).toThrow()
 })
 
+test('setting round-trips; missing key returns null', () => {
+  const db = fresh()
+  expect(db.getSetting('theme')).toBeNull()
+  db.setSetting('theme', 'dark')
+  expect(db.getSetting('theme')).toBe('dark')
+  db.setSetting('theme', 'light')
+  expect(db.getSetting('theme')).toBe('light')
+})
+
+test('settings table migration is idempotent across two openings of the same file', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'kumpas-db-')), 'k.db')
+  const db1 = new Db(file)
+  db1.setSetting('theme', 'dark')
+
+  const db2 = new Db(file)
+  expect(db2.getSetting('theme')).toBe('dark')
+})
+
 test('listProjects / listTickets / listAgents return scoped, ordered rows', () => {
   const db = fresh()
   const p1 = db.createProject('a', '/r/a')
