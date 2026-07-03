@@ -1,12 +1,28 @@
 import { useEffect, useState } from 'react'
+import { Moon, Plus, Sun } from 'lucide-react'
 import type { Project } from '../../core/types'
 import { api, baseName } from './api'
 import { Board } from './Board'
+import { Button } from '@/components/ui/button'
+
+function useTheme() {
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem('theme')
+    if (saved) return saved === 'dark'
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  })
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark)
+    localStorage.setItem('theme', dark ? 'dark' : 'light')
+  }, [dark])
+  return { dark, toggle: () => setDark((d) => !d) }
+}
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([])
   const [selected, setSelected] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const { dark, toggle } = useTheme()
 
   async function refresh() {
     const ps = await api.listProjects()
@@ -31,29 +47,37 @@ export default function App() {
   }
 
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <div className="sidebar-head">
-          <span>Projects</span>
-          <button onClick={addProject}>＋</button>
+    <div className="flex h-screen bg-background text-foreground">
+      <aside className="flex w-56 flex-col border-r bg-card p-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold">Projects</span>
+          <Button variant="ghost" size="icon" onClick={addProject} aria-label="Add project">
+            <Plus />
+          </Button>
         </div>
-        {error && <div className="error">{error}</div>}
-        <ul>
+        {error && <div className="mt-2 text-xs text-destructive">{error}</div>}
+        <ul className="mt-2 flex-1 space-y-1 overflow-y-auto">
           {projects.map((p) => (
-            <li
-              key={p.id}
-              className={p.id === selected ? 'active' : ''}
-              onClick={() => setSelected(p.id)}
-              title={p.repoPath}
-            >
-              {p.name}
+            <li key={p.id}>
+              <button
+                className={`w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent ${
+                  p.id === selected ? 'bg-accent font-medium' : 'text-muted-foreground'
+                }`}
+                onClick={() => setSelected(p.id)}
+                title={p.repoPath}
+              >
+                {p.name}
+              </button>
             </li>
           ))}
         </ul>
+        <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
+          {dark ? <Sun /> : <Moon />}
+        </Button>
       </aside>
-      <main className="main">
+      <main className="flex-1 overflow-auto p-4">
         {selected === null ? (
-          <p className="empty">Add a git project to begin.</p>
+          <p className="text-sm text-muted-foreground">Add a git project to begin.</p>
         ) : (
           <Board key={selected} projectId={selected} />
         )}
