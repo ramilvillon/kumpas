@@ -183,6 +183,10 @@ function TicketDrawer({
   onClose: () => void
 }) {
   const [agentId, setAgentId] = useState<number | null>(null)
+  const ticketId = ticket?.id
+  useEffect(() => {
+    setAgentId(null)
+  }, [ticketId])
   const chosenAgentId = agentId ?? agents[0]?.id ?? null
 
   async function move(columnId: number) {
