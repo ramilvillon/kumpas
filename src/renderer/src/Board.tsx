@@ -1,17 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Agent, Column, Run, Ticket } from '../../core/types'
 import { api } from './api'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { NewTaskModal } from './NewTaskModal'
+import { TicketDrawer } from './TicketDrawer'
 import { hue, initials } from './lib/visuals'
 
 /** Format ISO YYYY-MM-DD → "Jul 20" (UTC, no dep needed) */
@@ -243,109 +235,3 @@ function TicketCard({
   )
 }
 
-function TicketDrawer({
-  ticket,
-  columns,
-  agents,
-  busy,
-  result,
-  onDispatch,
-  onChanged,
-  onClose,
-}: {
-  ticket: Ticket | null
-  columns: Column[]
-  agents: Agent[]
-  busy: boolean
-  result: string | null
-  onDispatch: (ticketId: number, agentId: number) => void
-  onChanged: () => void
-  onClose: () => void
-}) {
-  const [agentId, setAgentId] = useState<number | null>(null)
-  const ticketId = ticket?.id
-  useEffect(() => {
-    setAgentId(null)
-  }, [ticketId])
-  const chosenAgentId = agentId ?? agents[0]?.id ?? null
-
-  async function move(columnId: number) {
-    if (!ticket) return
-    await api.moveTicket(ticket.id, columnId)
-    onChanged()
-  }
-
-  return (
-    <Sheet
-      open={ticket !== null}
-      onOpenChange={(open) => {
-        if (!open) onClose()
-      }}
-    >
-      <SheetContent side="right" className="w-full sm:max-w-md">
-        {ticket && (
-          <>
-            <SheetHeader>
-              <SheetTitle className="flex items-center gap-2 pr-6">
-                {ticket.title}
-                {ticket.blocked ? <Badge variant="destructive">blocked</Badge> : null}
-              </SheetTitle>
-            </SheetHeader>
-            <div className="grid gap-4 px-4">
-              <div className="grid grid-cols-[80px_1fr] items-center gap-x-2 gap-y-3 text-sm">
-                <span className="text-muted-foreground">Status</span>
-                <Select
-                  value={String(ticket.columnId)}
-                  onValueChange={(v) => move(Number(v))}
-                  disabled={busy}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {columns.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span className="text-muted-foreground">Agent</span>
-                <Select
-                  value={chosenAgentId === null ? undefined : String(chosenAgentId)}
-                  onValueChange={(v) => setAgentId(Number(v))}
-                  disabled={busy}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Pick an agent" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {agents.map((a) => (
-                      <SelectItem key={a.id} value={String(a.id)}>
-                        {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                onClick={() => {
-                  if (chosenAgentId !== null) onDispatch(ticket.id, chosenAgentId)
-                }}
-                disabled={busy || chosenAgentId === null}
-              >
-                {busy ? 'Running…' : 'Dispatch'}
-              </Button>
-              {ticket.description && (
-                <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                  {ticket.description}
-                </p>
-              )}
-              {result && <div className="rounded-md bg-muted p-2 text-xs">{result}</div>}
-            </div>
-          </>
-        )}
-      </SheetContent>
-    </Sheet>
-  )
-}
