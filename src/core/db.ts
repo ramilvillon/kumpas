@@ -70,6 +70,11 @@ CREATE TABLE IF NOT EXISTS attachments (
 const MIGRATIONS: string[] = [
   SCHEMA,
   'CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);',
+  // v2 → v3: ticket task-fields for the Pit UI.
+  `ALTER TABLE tickets ADD COLUMN priority TEXT;
+   ALTER TABLE tickets ADD COLUMN due_date TEXT;
+   ALTER TABLE tickets ADD COLUMN assignee_agent_id INTEGER REFERENCES agents(id);
+   ALTER TABLE tickets ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';`,
 ]
 
 const DEFAULT_COLUMNS: { name: string; role: ColumnRole | null }[] = [
@@ -159,24 +164,29 @@ export class Db {
     return this.getTicket(Number(info.lastInsertRowid))
   }
 
+  private mapTicket(row: any): Ticket {
+    return { ...row, tags: JSON.parse(row.tags ?? '[]') }
+  }
+
   getTicket(id: number): Ticket {
-    return this.db
-      .prepare(
-        `SELECT id, project_id AS projectId, title, description,
-                column_id AS columnId, blocked
-         FROM tickets WHERE id = ?`,
-      )
-      .get(id) as Ticket
+    const row = this.db.prepare(
+      `SELECT id, project_id AS projectId, title, description, column_id AS columnId,
+              blocked, priority, due_date AS dueDate, assignee_agent_id AS assigneeAgentId, tags
+       FROM tickets WHERE id = ?`,
+    ).get(id)
+    return this.mapTicket(row)
   }
 
   listTickets(projectId: number): Ticket[] {
-    return this.db
-      .prepare(
-        `SELECT id, project_id AS projectId, title, description,
-                column_id AS columnId, blocked
-         FROM tickets WHERE project_id = ? ORDER BY id ASC`,
-      )
-      .all(projectId) as Ticket[]
+    const rows = this.db.prepare(
+      `SELECT t.id, t.project_id AS projectId, t.title, t.description, t.column_id AS columnId,
+              t.blocked, t.priority, t.due_date AS dueDate,
+              t.assignee_agent_id AS assigneeAgentId, t.tags,
+              (SELECT COUNT(*) FROM comments c WHERE c.ticket_id = t.id) AS commentCount,
+              (SELECT COUNT(*) FROM attachments a WHERE a.ticket_id = t.id) AS attachmentCount
+       FROM tickets t WHERE t.project_id = ? ORDER BY t.id ASC`,
+    ).all(projectId)
+    return rows.map((r) => this.mapTicket(r))
   }
 
   setTicketColumn(id: number, columnId: number): void {

@@ -120,6 +120,29 @@ test('settings table migration is idempotent across two openings of the same fil
   expect(db2.getSetting('theme')).toBe('dark')
 })
 
+test('new ticket has priority/dueDate/assignee null and empty tags', () => {
+  const db = new Db(':memory:')
+  const p = db.createProject('p', '/tmp/p')
+  const t = db.createTicket(p.id, 'title', 'desc')
+  const got = db.getTicket(t.id)
+  expect(got.priority).toBeNull()
+  expect(got.dueDate).toBeNull()
+  expect(got.assigneeAgentId).toBeNull()
+  expect(got.tags).toEqual([])
+})
+
+test('listTickets carries comment and attachment counts', () => {
+  const db = new Db(':memory:')
+  const p = db.createProject('p', '/tmp/p')
+  const t = db.createTicket(p.id, 'title', 'desc')
+  db.addComment(t.id, 'human', 'hi', 'note')
+  db.addComment(t.id, 'Developer', 'done', 'note')
+  db.createAttachment({ ticketId: t.id, filename: 'a.txt', kind: 'text', path: '/tmp/a.txt' })
+  const [row] = db.listTickets(p.id)
+  expect(row.commentCount).toBe(2)
+  expect(row.attachmentCount).toBe(1)
+})
+
 test('listProjects / listTickets / listAgents return scoped, ordered rows', () => {
   const db = fresh()
   const p1 = db.createProject('a', '/r/a')
