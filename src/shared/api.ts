@@ -1,4 +1,4 @@
-import type { Agent, Column, Project, Run, Ticket } from '../core/types.js'
+import type { Agent, Attachment, Column, Comment, Project, Run, Ticket } from '../core/types.js'
 
 export interface KumpasApi {
   listProjects(): Promise<Project[]>
@@ -6,12 +6,28 @@ export interface KumpasApi {
   createProject(name: string, repoPath: string): Promise<Project>
   listColumns(projectId: number): Promise<Column[]>
   listTickets(projectId: number): Promise<Ticket[]>
-  createTicket(projectId: number, title: string, description: string): Promise<Ticket>
+  createTicket(
+    projectId: number, title: string, description: string,
+    opts?: {
+      priority?: 'low' | 'medium' | 'high' | null
+      dueDate?: string | null
+      assigneeAgentId?: number | null
+      tags?: string[]
+      columnId?: number
+    },
+  ): Promise<Ticket>
+  updateTicket(ticketId: number, patch: Record<string, unknown>): Promise<Ticket>
   moveTicket(ticketId: number, columnId: number): Promise<void>
   listAgents(): Promise<Agent[]>
   dispatch(ticketId: number, agentId: number): Promise<Run>
   getSetting(key: string): Promise<string | null>
   setSetting(key: string, value: string): Promise<void>
+  listComments(ticketId: number): Promise<Comment[]>
+  addComment(ticketId: number, body: string): Promise<Comment>
+  listAttachments(ticketId: number): Promise<Attachment[]>
+  listRuns(ticketId: number): Promise<Run[]>
+  pickFiles(): Promise<string[]>
+  addAttachment(ticketId: number, sourcePath: string): Promise<Attachment>
 }
 
 // One channel string per method; keys must match KumpasApi method names.
@@ -22,9 +38,16 @@ export const CHANNELS: Record<keyof KumpasApi, string> = {
   listColumns: 'columns:list',
   listTickets: 'tickets:list',
   createTicket: 'tickets:create',
+  updateTicket: 'tickets:update',
   moveTicket: 'tickets:move',
   listAgents: 'agents:list',
   dispatch: 'dispatch:run',
   getSetting: 'settings:get',
   setSetting: 'settings:set',
+  listComments: 'comments:list',
+  addComment: 'comments:add',
+  listAttachments: 'attachments:list',
+  listRuns: 'runs:list',
+  pickFiles: 'attachments:pickFiles',
+  addAttachment: 'attachments:add',
 }
