@@ -37,6 +37,7 @@ export function NewTaskModal({ open, onOpenChange, projectId, columns, agents, o
   const [tagInput, setTagInput] = useState('')
   const [stagedPaths, setStagedPaths] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const titleRef = useRef<HTMLInputElement>(null)
 
   // default to todo-role column when columns change
@@ -58,6 +59,7 @@ export function NewTaskModal({ open, onOpenChange, projectId, columns, agents, o
     setTagInput('')
     setStagedPaths([])
     setSubmitting(false)
+    setSubmitError(null)
     const todo = columns.find((c) => c.role === 'todo') ?? columns[0]
     if (todo) setColumnId(String(todo.id))
     setTimeout(() => titleRef.current?.focus(), 50)
@@ -65,6 +67,7 @@ export function NewTaskModal({ open, onOpenChange, projectId, columns, agents, o
 
   async function onCreate() {
     if (!title.trim() || submitting) return
+    setSubmitError(null)
     setSubmitting(true)
     try {
       const t = await api.createTicket(projectId, title.trim(), description.trim(), {
@@ -76,6 +79,8 @@ export function NewTaskModal({ open, onOpenChange, projectId, columns, agents, o
       })
       await Promise.all(stagedPaths.map((p) => api.addAttachment(t.id, p)))
       onCreated()
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {
       setSubmitting(false)
     }
@@ -94,6 +99,7 @@ export function NewTaskModal({ open, onOpenChange, projectId, columns, agents, o
   }
 
   function addTag(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.metaKey || e.ctrlKey) return
     if (e.key !== 'Enter') return
     e.preventDefault()
     const val = tagInput.trim()
@@ -247,6 +253,10 @@ export function NewTaskModal({ open, onOpenChange, projectId, columns, agents, o
             </div>
           </div>
         </div>
+
+        {submitError && (
+          <p className="text-destructive text-sm px-5 pb-1">{submitError}</p>
+        )}
 
         <DialogFooter>
           <span className="text-xs text-muted-foreground mr-auto">↩ press ⌘↵ to create</span>
