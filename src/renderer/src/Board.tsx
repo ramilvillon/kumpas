@@ -162,8 +162,11 @@ function TicketCard({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
-      className={`mb-2.5 cursor-pointer rounded-[10px] border border-border bg-card p-3 transition-colors hover:border-ring/40 ${busy ? 'card-running' : ''}`}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }}
+      className={`mb-2.5 cursor-pointer rounded-[10px] border border-border bg-card p-3 transition-colors hover:border-ring/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${busy ? 'card-running' : ''}`}
     >
       {/* Tag + priority chips */}
       {hasChips && (
@@ -181,10 +184,7 @@ function TicketCard({
             </span>
           ))}
           {ticket.priority === 'high' && (
-            <span
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-medium"
-              style={{ background: 'rgba(214,84,60,.14)', color: '#e5836f' }}
-            >
+            <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10.5px] font-medium text-destructive">
               ◆ High
             </span>
           )}
@@ -232,7 +232,10 @@ function TicketCard({
         )}
       </div>
 
-      {/* Run result (post-dispatch) */}
+      {/* In-flight feedback + post-dispatch result */}
+      {busy && (
+        <div className="mt-1.5 truncate text-xs text-muted-foreground">Running…</div>
+      )}
       {result && (
         <div className="mt-1.5 truncate text-xs text-muted-foreground">{result}</div>
       )}
