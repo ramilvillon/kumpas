@@ -1,8 +1,15 @@
 import Database from 'better-sqlite3'
 import type {
   ProviderName, Agent, Attachment, AttachmentKind, Column, ColumnRole, Comment,
-  CommentKind, Project, Run, RunStatus, Ticket,
+  CommentKind, Project, Run, RunStatus, Ticket, TicketPriority,
 } from './types.js'
+
+type TicketFields = {
+  priority?: TicketPriority | null
+  dueDate?: string | null
+  assigneeAgentId?: number | null
+  tags?: string[]
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
@@ -154,14 +161,52 @@ export class Db {
     return col
   }
 
-  createTicket(projectId: number, title: string, description: string): Ticket {
-    const todo = this.getColumnByRole(projectId, 'todo')
-    const info = this.db
-      .prepare(
-        'INSERT INTO tickets (project_id, title, description, column_id) VALUES (?, ?, ?, ?)',
-      )
-      .run(projectId, title, description, todo.id)
+  createTicket(
+    projectId: number, title: string, description: string,
+    opts: TicketFields & { columnId?: number } = {},
+  ): Ticket {
+    const columnId = opts.columnId ?? this.getColumnByRole(projectId, 'todo').id
+    const info = this.db.prepare(
+      `INSERT INTO tickets
+         (project_id, title, description, column_id, priority, due_date, assignee_agent_id, tags)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      projectId, title, description, columnId,
+      opts.priority ?? null, opts.dueDate ?? null, opts.assigneeAgentId ?? null,
+      JSON.stringify(opts.tags ?? []),
+    )
     return this.getTicket(Number(info.lastInsertRowid))
+  }
+
+  // ponytail: build the SET clause from the patch keys — one method, not five setters.
+  updateTicketFields(
+    id: number,
+    patch: Partial<TicketFields & { title: string; description: string; columnId: number }>,
+  ): Ticket {
+    const col: Record<string, string> = {
+      title: 'title', description: 'description', columnId: 'column_id',
+      priority: 'priority', dueDate: 'due_date', assigneeAgentId: 'assignee_agent_id', tags: 'tags',
+    }
+    const sets: string[] = []
+    const vals: unknown[] = []
+    for (const [k, v] of Object.entries(patch)) {
+      if (!(k in col)) continue
+      sets.push(`${col[k]} = ?`)
+      vals.push(k === 'tags' ? JSON.stringify(v) : (v ?? null))
+    }
+    if (sets.length) {
+      this.db.prepare(`UPDATE tickets SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id)
+    }
+    return this.getTicket(id)
+  }
+
+  listRuns(ticketId: number): Run[] {
+    return this.db.prepare(
+      `SELECT id, ticket_id AS ticketId, agent_id AS agentId, status,
+              tokens_in AS tokensIn, tokens_out AS tokensOut,
+              duration_ms AS durationMs, diff, created_at AS createdAt
+       FROM runs WHERE ticket_id = ? ORDER BY id DESC`,
+    ).all(ticketId) as Run[]
   }
 
   private mapTicket(row: any): Ticket {
