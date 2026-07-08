@@ -82,3 +82,30 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* downbeat signature — brass left rail with metronome pulse */
+@keyframes downbeat {
+  0%, 100% { opacity: 0.35 }
+  50% { opacity: 1 }
+}
+.card-running {
+  position: relative;
+  box-shadow: -2px 0 0 var(--primary);
+}
+.card-running::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 1px 0 0 1px;
+  animation: downbeat 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-running::before {
+    animation: none;
+    opacity: 1;
+  }
+}
