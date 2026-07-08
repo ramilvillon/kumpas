@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Agent, Attachment, Column, Comment, Run, Ticket } from '../../core/types'
 import { api } from './api'
 import { hue, initials } from './lib/visuals'
@@ -63,6 +63,7 @@ export function TicketDrawer({
   const [descDraft, setDescDraft] = useState('')
   const [tagInput, setTagInput] = useState('')
   const [posting, setPosting] = useState(false)
+  const descRef = useRef<HTMLTextAreaElement>(null)
 
   const ticketId = ticket?.id
 
@@ -89,8 +90,16 @@ export function TicketDrawer({
       setComments(c)
       setAttachments(a)
       setRuns(r)
-    })
+    }).catch(console.error)
   }, [ticketId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Resync descDraft if the server value changes while the drawer stays open,
+  // but only when the textarea isn't focused (don't clobber an in-progress edit).
+  useEffect(() => {
+    if (ticket && descRef.current !== document.activeElement) {
+      setDescDraft(ticket.description)
+    }
+  }, [ticket?.description]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function reloadData() {
     if (!ticketId) return
@@ -286,7 +295,7 @@ export function TicketDrawer({
                   ))}
                   <input
                     value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value.replace(',', ''))}
+                    onChange={(e) => setTagInput(e.target.value.replace(/,/g, ''))}
                     onKeyDown={(e) => {
                       if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) {
                         e.preventDefault()
@@ -330,6 +339,7 @@ export function TicketDrawer({
               {/* Description */}
               {tab === 'description' && (
                 <textarea
+                  ref={descRef}
                   value={descDraft}
                   onChange={(e) => setDescDraft(e.target.value)}
                   onBlur={() => {
@@ -419,7 +429,7 @@ export function TicketDrawer({
                     </div>
                   ))}
                   <button
-                    onClick={() => void attachFiles()}
+                    onClick={() => void attachFiles().catch(console.error)}
                     className="mt-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
                   >
                     📎 Attach files
