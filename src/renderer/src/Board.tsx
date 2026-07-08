@@ -3,7 +3,6 @@ import type { Agent, Column, Run, Ticket } from '../../core/types'
 import { api } from './api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -12,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { NewTaskModal } from './NewTaskModal'
 
 export function Board({ projectId }: { projectId: number }) {
   const [columns, setColumns] = useState<Column[]>([])
@@ -20,6 +20,7 @@ export function Board({ projectId }: { projectId: number }) {
   const [busyTicketId, setBusyTicketId] = useState<number | null>(null)
   const [results, setResults] = useState<Record<number, string>>({})
   const [openTicketId, setOpenTicketId] = useState<number | null>(null)
+  const [newTaskOpen, setNewTaskOpen] = useState(false)
 
   const refresh = useCallback(async () => {
     const [cols, tks, ags] = await Promise.all([
@@ -59,7 +60,9 @@ export function Board({ projectId }: { projectId: number }) {
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <NewTicketForm projectId={projectId} onCreated={refresh} />
+      <div className="flex items-center justify-end">
+        <Button onClick={() => setNewTaskOpen(true)}>＋ New task</Button>
+      </div>
       <div className="flex flex-1 items-start gap-4 overflow-x-auto">
         {columns.map((col) => {
           const colTickets = tickets.filter((t) => t.columnId === col.id)
@@ -96,41 +99,18 @@ export function Board({ projectId }: { projectId: number }) {
         onChanged={refresh}
         onClose={() => setOpenTicketId(null)}
       />
+      <NewTaskModal
+        open={newTaskOpen}
+        onOpenChange={setNewTaskOpen}
+        projectId={projectId}
+        columns={columns}
+        agents={agents}
+        onCreated={() => { setNewTaskOpen(false); refresh() }}
+      />
     </div>
   )
 }
 
-function NewTicketForm({ projectId, onCreated }: { projectId: number; onCreated: () => void }) {
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!title.trim()) return
-    await api.createTicket(projectId, title.trim(), description.trim())
-    setTitle('')
-    setDescription('')
-    onCreated()
-  }
-
-  return (
-    <form className="flex gap-2" onSubmit={submit}>
-      <Input
-        placeholder="New ticket title"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        className="max-w-xs"
-      />
-      <Input
-        placeholder="Description"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        className="flex-1"
-      />
-      <Button type="submit">Add</Button>
-    </form>
-  )
-}
 
 function TicketCard({
   ticket,
