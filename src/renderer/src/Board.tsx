@@ -48,7 +48,9 @@ export function Board({
     setAgents(ags)
   }, [projectId])
 
-  // Archived agents never appear in pickers/dispatch; the Agents tab shows all.
+  // Archived agents are filtered out of picker/dispatch OPTIONS only; display
+  // (assignee avatar/select value) always uses the full `agents` list so an
+  // archived assignee still shows up on tickets it's already assigned to.
   const activeAgents = agents.filter((a) => !a.archived)
 
   useEffect(() => {
@@ -149,7 +151,7 @@ export function Board({
                   <TicketCard
                     key={t.id}
                     ticket={t}
-                    agents={activeAgents}
+                    agents={agents}
                     busy={busyTicketId === t.id}
                     result={results[t.id] ?? null}
                     onOpen={() => setOpenTicketId(t.id)}
@@ -164,7 +166,7 @@ export function Board({
       <TicketDrawer
         ticket={openTicket}
         columns={columns}
-        agents={activeAgents}
+        agents={agents}
         busy={openTicket !== null && busyTicketId === openTicket.id}
         result={openTicket ? (results[openTicket.id] ?? null) : null}
         onDispatch={dispatchTicket}
