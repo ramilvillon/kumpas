@@ -6,6 +6,7 @@ import { dispatch } from '../core/dispatch.js'
 import { isGitRepo } from '../core/git.js'
 import { copyIntoStore } from '../core/attachmentStore.js'
 import { CHANNELS } from '../shared/api.js'
+import { validateAgentCreate, validateAgentPatch, type AgentCreateInput, type AgentPatch } from '../core/agentInput.js'
 
 export function registerIpc(
   db: Db,
@@ -42,6 +43,20 @@ export function registerIpc(
     db.setTicketColumn(ticketId, columnId),
   )
   ipcMain.handle(CHANNELS.listAgents, () => db.listAgents())
+  ipcMain.handle(CHANNELS.createAgent, (_e, input: AgentCreateInput) => {
+    validateAgentCreate(input)
+    return db.createAgent(
+      input.name.trim(), input.provider, input.model.trim(),
+      input.systemPrompt, input.permissionLevel,
+    )
+  })
+  ipcMain.handle(CHANNELS.updateAgent, (_e, agentId: number, patch: AgentPatch) => {
+    validateAgentPatch(patch)
+    const p = { ...patch }
+    if (typeof p.name === 'string') p.name = p.name.trim()
+    if (typeof p.model === 'string') p.model = p.model.trim()
+    return db.updateAgent(agentId, p)
+  })
   ipcMain.handle(CHANNELS.dispatch, (_e, ticketId: number, agentId: number) =>
     dispatch({ db, providers }, ticketId, agentId),
   )
