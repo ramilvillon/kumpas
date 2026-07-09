@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Moon, PanelLeft, Plus, Sun } from 'lucide-react'
+import { Bot, Moon, PanelLeft, Plus, Sun } from 'lucide-react'
 import type { Project } from '../../core/types'
 import { api, baseName } from './api'
-import { Board } from './Board'
+import { Board, type MainTab } from './Board'
+import { AgentsPane } from './AgentsView'
 import { Button } from '@/components/ui/button'
 import { hue } from './lib/visuals'
 
@@ -41,6 +42,8 @@ interface SidebarViewProps {
   onPickProject: (id: number) => void
   dark: boolean
   onToggleTheme: () => void
+  agentsActive: boolean
+  onOpenAgents: () => void
 }
 
 function SidebarView(p: SidebarViewProps) {
@@ -72,6 +75,17 @@ function SidebarView(p: SidebarViewProps) {
             </button>
           ))}
         </div>
+        <button
+          onClick={p.onOpenAgents}
+          title="Agents"
+          className={`mt-2 flex h-9 w-9 items-center justify-center rounded-[7px] ${
+            p.agentsActive
+              ? 'bg-card text-primary ring-1 ring-primary'
+              : 'text-muted-foreground hover:bg-card/60'
+          }`}
+        >
+          <Bot className="h-4 w-4" />
+        </button>
         <Button
           variant="ghost"
           size="icon"
@@ -148,6 +162,22 @@ function SidebarView(p: SidebarViewProps) {
         ))}
       </div>
 
+      {/* MANAGE group */}
+      <div className="mt-4">
+        <h4 className="font-display px-1 pb-1.5 text-[9px] uppercase tracking-[0.18em] text-muted-foreground/70">
+          Manage
+        </h4>
+        <button
+          onClick={p.onOpenAgents}
+          className={`flex w-full items-center gap-[9px] rounded-[7px] px-2 py-[7px] text-[13px] transition-colors ${
+            p.agentsActive ? 'bg-card text-foreground' : 'text-muted-foreground hover:bg-card/60'
+          }`}
+        >
+          <Bot className="h-3.5 w-3.5 shrink-0 text-primary/80" />
+          Agents
+        </button>
+      </div>
+
       {/* Staff divider */}
       <div className="my-3.5 border-t border-border" />
 
@@ -194,6 +224,8 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false)
   const [flyout, setFlyout] = useState(false)
   const flyoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [mainTab, setMainTab] = useState<MainTab>('tasks')
+  const [agentsOpen, setAgentsOpen] = useState(false)
   const { dark, toggle } = useTheme()
 
   useEffect(() => {
@@ -234,6 +266,18 @@ export default function App() {
     if (collapsed) setCollapsedPersist(false)
   }
 
+  function openAgents() {
+    setAgentsOpen(true)
+    setMainTab('agents')
+    // Same VS Code behavior as project tiles: acting from the rail expands.
+    if (collapsed) setCollapsedPersist(false)
+  }
+
+  function closeAgents() {
+    setAgentsOpen(false)
+    setMainTab('tasks')
+  }
+
   const sidebarProps = {
     projects,
     selected,
@@ -244,6 +288,8 @@ export default function App() {
     onPickProject: pickProject,
     dark,
     onToggleTheme: toggle,
+    agentsActive: agentsOpen && mainTab === 'agents',
+    onOpenAgents: openAgents,
   }
 
   const sidebarToggle = (
@@ -288,12 +334,42 @@ export default function App() {
       {/* Main */}
       <main className="flex-1 overflow-auto">
         {selected === null ? (
-          <div className="flex items-center gap-2 p-4">
-            {sidebarToggle}
-            <p className="text-sm text-muted-foreground">Add a git project to begin.</p>
-          </div>
+          agentsOpen ? (
+            <div className="flex h-full flex-col px-[22px] py-5">
+              <div className="mb-[18px] flex items-center gap-[9px] border-b border-border pb-2">
+                {sidebarToggle}
+                <span
+                  className="font-display text-[12px] tracking-[0.08em]"
+                  style={{ boxShadow: 'inset 0 -2px 0 var(--primary)' }}
+                >
+                  Agents
+                </span>
+                <button
+                  onClick={closeAgents}
+                  aria-label="Close agents tab"
+                  className="rounded px-1 text-[11px] text-muted-foreground hover:bg-card hover:text-foreground"
+                >
+                  ✕
+                </button>
+              </div>
+              <AgentsPane />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 p-4">
+              {sidebarToggle}
+              <p className="text-sm text-muted-foreground">Add a git project to begin.</p>
+            </div>
+          )
         ) : (
-          <Board key={selected} projectId={selected} sidebarToggle={sidebarToggle} />
+          <Board
+            key={selected}
+            projectId={selected}
+            sidebarToggle={sidebarToggle}
+            mainTab={mainTab}
+            agentsOpen={agentsOpen}
+            onSelectTab={setMainTab}
+            onCloseAgents={closeAgents}
+          />
         )}
       </main>
     </div>

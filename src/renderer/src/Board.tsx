@@ -5,13 +5,30 @@ import { Button } from '@/components/ui/button'
 import { NewTaskModal } from './NewTaskModal'
 import { TicketDrawer } from './TicketDrawer'
 import { hue, initials } from './lib/visuals'
+import { AgentsPane } from './AgentsView'
+
+export type MainTab = 'tasks' | 'agents'
 
 /** Format ISO YYYY-MM-DD → "Jul 20" (UTC, no dep needed) */
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
-export function Board({ projectId, sidebarToggle }: { projectId: number; sidebarToggle?: ReactNode }) {
+export function Board({
+  projectId,
+  sidebarToggle,
+  mainTab,
+  agentsOpen,
+  onSelectTab,
+  onCloseAgents,
+}: {
+  projectId: number
+  sidebarToggle?: ReactNode
+  mainTab: MainTab
+  agentsOpen: boolean
+  onSelectTab: (t: MainTab) => void
+  onCloseAgents: () => void
+}) {
   const [columns, setColumns] = useState<Column[]>([])
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
@@ -30,6 +47,9 @@ export function Board({ projectId, sidebarToggle }: { projectId: number; sidebar
     setTickets(tks)
     setAgents(ags)
   }, [projectId])
+
+  // Archived agents never appear in pickers/dispatch; the Agents tab shows all.
+  const activeAgents = agents.filter((a) => !a.archived)
 
   useEffect(() => {
     refresh()
@@ -68,56 +88,83 @@ export function Board({ projectId, sidebarToggle }: { projectId: number; sidebar
       <div className="mb-[18px] flex items-center justify-between border-b border-border">
         <div className="flex items-center gap-[9px]">
           {sidebarToggle}
-          <span
-            className="font-display self-end pb-[9px] text-[12px] tracking-[0.08em] text-foreground"
-            style={{ boxShadow: 'inset 0 -2px 0 var(--primary)' }}
+          <button
+            onClick={() => onSelectTab('tasks')}
+            className={`font-display self-end pb-[9px] text-[12px] tracking-[0.08em] ${
+              mainTab === 'tasks' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+            }`}
+            style={mainTab === 'tasks' ? { boxShadow: 'inset 0 -2px 0 var(--primary)' } : undefined}
           >
             Tasks
-          </span>
+          </button>
+          {agentsOpen && (
+            <span
+              className={`font-display flex items-center gap-1 self-end pb-[9px] text-[12px] tracking-[0.08em] ${
+                mainTab === 'agents' ? 'text-foreground' : 'text-muted-foreground'
+              }`}
+              style={mainTab === 'agents' ? { boxShadow: 'inset 0 -2px 0 var(--primary)' } : undefined}
+            >
+              <button onClick={() => onSelectTab('agents')} className="hover:text-foreground">
+                Agents
+              </button>
+              <button
+                onClick={onCloseAgents}
+                aria-label="Close agents tab"
+                className="rounded px-1 text-[11px] text-muted-foreground hover:bg-card hover:text-foreground"
+              >
+                ✕
+              </button>
+            </span>
+          )}
         </div>
-        <Button
-          onClick={() => setNewTaskOpen(true)}
-          className="mb-[9px] inline-flex items-center gap-[7px]"
-        >
-          <span className="text-[15px] leading-none">＋</span> New task
-        </Button>
+        {mainTab === 'tasks' && (
+          <Button
+            onClick={() => setNewTaskOpen(true)}
+            className="mb-[9px] inline-flex items-center gap-[7px]"
+          >
+            <span className="text-[15px] leading-none">＋</span> New task
+          </Button>
+        )}
       </div>
 
-      {/* Columns */}
-      <div className="flex flex-1 items-start gap-3.5 overflow-x-auto">
-        {columns.map((col) => {
-          const colTickets = tickets.filter((t) => t.columnId === col.id)
-          return (
-            <div key={col.id} className="min-w-52 flex-1">
-              {/* Column header */}
-              <div className="flex items-center gap-2 px-1 pb-2.5 pt-0.5">
-                <span className="font-display text-[10px] uppercase tracking-[0.13em] text-muted-foreground">
-                  {col.name}
-                </span>
-                <span className="rounded-full bg-card px-[7px] py-px font-mono text-[11px] text-muted-foreground">
-                  {colTickets.length}
-                </span>
+      {mainTab === 'agents' ? (
+        <AgentsPane onChanged={refresh} />
+      ) : (
+        <div className="flex flex-1 items-start gap-3.5 overflow-x-auto">
+          {columns.map((col) => {
+            const colTickets = tickets.filter((t) => t.columnId === col.id)
+            return (
+              <div key={col.id} className="min-w-52 flex-1">
+                {/* Column header */}
+                <div className="flex items-center gap-2 px-1 pb-2.5 pt-0.5">
+                  <span className="font-display text-[10px] uppercase tracking-[0.13em] text-muted-foreground">
+                    {col.name}
+                  </span>
+                  <span className="rounded-full bg-card px-[7px] py-px font-mono text-[11px] text-muted-foreground">
+                    {colTickets.length}
+                  </span>
+                </div>
+                {/* Cards */}
+                {colTickets.map((t) => (
+                  <TicketCard
+                    key={t.id}
+                    ticket={t}
+                    agents={activeAgents}
+                    busy={busyTicketId === t.id}
+                    result={results[t.id] ?? null}
+                    onOpen={() => setOpenTicketId(t.id)}
+                  />
+                ))}
               </div>
-              {/* Cards */}
-              {colTickets.map((t) => (
-                <TicketCard
-                  key={t.id}
-                  ticket={t}
-                  agents={agents}
-                  busy={busyTicketId === t.id}
-                  result={results[t.id] ?? null}
-                  onOpen={() => setOpenTicketId(t.id)}
-                />
-              ))}
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
 
       <TicketDrawer
         ticket={openTicket}
         columns={columns}
-        agents={agents}
+        agents={activeAgents}
         busy={openTicket !== null && busyTicketId === openTicket.id}
         result={openTicket ? (results[openTicket.id] ?? null) : null}
         onDispatch={dispatchTicket}
@@ -129,7 +176,7 @@ export function Board({ projectId, sidebarToggle }: { projectId: number; sidebar
         onOpenChange={setNewTaskOpen}
         projectId={projectId}
         columns={columns}
-        agents={agents}
+        agents={activeAgents}
         onCreated={() => {
           setNewTaskOpen(false)
           refresh()
