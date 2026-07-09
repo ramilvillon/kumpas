@@ -19,6 +19,8 @@ export interface Column {
   role: ColumnRole | null
 }
 
+export type TicketPriority = 'low' | 'medium' | 'high'
+
 export interface Ticket {
   id: number
   projectId: number
@@ -26,6 +28,12 @@ export interface Ticket {
   description: string
   columnId: number
   blocked: number // 0 | 1
+  priority: TicketPriority | null
+  dueDate: string | null // ISO YYYY-MM-DD
+  assigneeAgentId: number | null
+  tags: string[]
+  commentCount?: number // populated by listTickets only
+  attachmentCount?: number
 }
 
 export interface Comment {

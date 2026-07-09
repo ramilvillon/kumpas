@@ -7,13 +7,21 @@ const api: KumpasApi = {
   createProject: (name, repoPath) => ipcRenderer.invoke(CHANNELS.createProject, name, repoPath),
   listColumns: (projectId) => ipcRenderer.invoke(CHANNELS.listColumns, projectId),
   listTickets: (projectId) => ipcRenderer.invoke(CHANNELS.listTickets, projectId),
-  createTicket: (projectId, title, description) =>
-    ipcRenderer.invoke(CHANNELS.createTicket, projectId, title, description),
+  createTicket: (projectId, title, description, opts) =>
+    ipcRenderer.invoke(CHANNELS.createTicket, projectId, title, description, opts),
+  updateTicket: (ticketId, patch) => ipcRenderer.invoke(CHANNELS.updateTicket, ticketId, patch),
   moveTicket: (ticketId, columnId) => ipcRenderer.invoke(CHANNELS.moveTicket, ticketId, columnId),
   listAgents: () => ipcRenderer.invoke(CHANNELS.listAgents),
   dispatch: (ticketId, agentId) => ipcRenderer.invoke(CHANNELS.dispatch, ticketId, agentId),
   getSetting: (key) => ipcRenderer.invoke(CHANNELS.getSetting, key),
   setSetting: (key, value) => ipcRenderer.invoke(CHANNELS.setSetting, key, value),
+  listComments: (ticketId) => ipcRenderer.invoke(CHANNELS.listComments, ticketId),
+  addComment: (ticketId, body) => ipcRenderer.invoke(CHANNELS.addComment, ticketId, body),
+  listAttachments: (ticketId) => ipcRenderer.invoke(CHANNELS.listAttachments, ticketId),
+  listRuns: (ticketId) => ipcRenderer.invoke(CHANNELS.listRuns, ticketId),
+  pickFiles: () => ipcRenderer.invoke(CHANNELS.pickFiles),
+  addAttachment: (ticketId, sourcePath) =>
+    ipcRenderer.invoke(CHANNELS.addAttachment, ticketId, sourcePath),
 }
 
 contextBridge.exposeInMainWorld('kumpas', api)

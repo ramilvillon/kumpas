@@ -1,8 +1,15 @@
 import Database from 'better-sqlite3'
 import type {
   ProviderName, Agent, Attachment, AttachmentKind, Column, ColumnRole, Comment,
-  CommentKind, Project, Run, RunStatus, Ticket,
+  CommentKind, Project, Run, RunStatus, Ticket, TicketPriority,
 } from './types.js'
+
+type TicketFields = {
+  priority?: TicketPriority | null
+  dueDate?: string | null
+  assigneeAgentId?: number | null
+  tags?: string[]
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
@@ -70,6 +77,11 @@ CREATE TABLE IF NOT EXISTS attachments (
 const MIGRATIONS: string[] = [
   SCHEMA,
   'CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);',
+  // v2 → v3: ticket task-fields for the Pit UI.
+  `ALTER TABLE tickets ADD COLUMN priority TEXT;
+   ALTER TABLE tickets ADD COLUMN due_date TEXT;
+   ALTER TABLE tickets ADD COLUMN assignee_agent_id INTEGER REFERENCES agents(id);
+   ALTER TABLE tickets ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';`,
 ]
 
 const DEFAULT_COLUMNS: { name: string; role: ColumnRole | null }[] = [
@@ -149,34 +161,77 @@ export class Db {
     return col
   }
 
-  createTicket(projectId: number, title: string, description: string): Ticket {
-    const todo = this.getColumnByRole(projectId, 'todo')
-    const info = this.db
-      .prepare(
-        'INSERT INTO tickets (project_id, title, description, column_id) VALUES (?, ?, ?, ?)',
-      )
-      .run(projectId, title, description, todo.id)
+  createTicket(
+    projectId: number, title: string, description: string,
+    opts: TicketFields & { columnId?: number } = {},
+  ): Ticket {
+    const columnId = opts.columnId ?? this.getColumnByRole(projectId, 'todo').id
+    const info = this.db.prepare(
+      `INSERT INTO tickets
+         (project_id, title, description, column_id, priority, due_date, assignee_agent_id, tags)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      projectId, title, description, columnId,
+      opts.priority ?? null, opts.dueDate ?? null, opts.assigneeAgentId ?? null,
+      JSON.stringify(opts.tags ?? []),
+    )
     return this.getTicket(Number(info.lastInsertRowid))
   }
 
+  // ponytail: build the SET clause from the patch keys — one method, not five setters.
+  updateTicketFields(
+    id: number,
+    patch: Partial<TicketFields & { title: string; description: string; columnId: number }>,
+  ): Ticket {
+    const col: Record<string, string> = {
+      title: 'title', description: 'description', columnId: 'column_id',
+      priority: 'priority', dueDate: 'due_date', assigneeAgentId: 'assignee_agent_id', tags: 'tags',
+    }
+    const sets: string[] = []
+    const vals: unknown[] = []
+    for (const [k, v] of Object.entries(patch)) {
+      if (!(k in col)) continue
+      sets.push(`${col[k]} = ?`)
+      vals.push(k === 'tags' ? JSON.stringify(v) : (v ?? null))
+    }
+    if (sets.length) {
+      this.db.prepare(`UPDATE tickets SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id)
+    }
+    return this.getTicket(id)
+  }
+
+  listRuns(ticketId: number): Run[] {
+    return this.db.prepare(
+      `SELECT id, ticket_id AS ticketId, agent_id AS agentId, status,
+              tokens_in AS tokensIn, tokens_out AS tokensOut,
+              duration_ms AS durationMs, diff, created_at AS createdAt
+       FROM runs WHERE ticket_id = ? ORDER BY id DESC`,
+    ).all(ticketId) as Run[]
+  }
+
+  private mapTicket(row: any): Ticket {
+    return { ...row, tags: JSON.parse(row.tags ?? '[]') }
+  }
+
   getTicket(id: number): Ticket {
-    return this.db
-      .prepare(
-        `SELECT id, project_id AS projectId, title, description,
-                column_id AS columnId, blocked
-         FROM tickets WHERE id = ?`,
-      )
-      .get(id) as Ticket
+    const row = this.db.prepare(
+      `SELECT id, project_id AS projectId, title, description, column_id AS columnId,
+              blocked, priority, due_date AS dueDate, assignee_agent_id AS assigneeAgentId, tags
+       FROM tickets WHERE id = ?`,
+    ).get(id)
+    return this.mapTicket(row)
   }
 
   listTickets(projectId: number): Ticket[] {
-    return this.db
-      .prepare(
-        `SELECT id, project_id AS projectId, title, description,
-                column_id AS columnId, blocked
-         FROM tickets WHERE project_id = ? ORDER BY id ASC`,
-      )
-      .all(projectId) as Ticket[]
+    const rows = this.db.prepare(
+      `SELECT t.id, t.project_id AS projectId, t.title, t.description, t.column_id AS columnId,
+              t.blocked, t.priority, t.due_date AS dueDate,
+              t.assignee_agent_id AS assigneeAgentId, t.tags,
+              (SELECT COUNT(*) FROM comments c WHERE c.ticket_id = t.id) AS commentCount,
+              (SELECT COUNT(*) FROM attachments a WHERE a.ticket_id = t.id) AS attachmentCount
+       FROM tickets t WHERE t.project_id = ? ORDER BY t.id ASC`,
+    ).all(projectId)
+    return rows.map((r) => this.mapTicket(r))
   }
 
   setTicketColumn(id: number, columnId: number): void {

@@ -5,48 +5,51 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.141 0.005 285.823);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: oklch(0.21 0.006 285.885);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.967 0.001 286.375);
-  --accent-foreground: oklch(0.21 0.006 285.885);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.004 286.32);
-  --input: oklch(0.92 0.004 286.32);
-  --ring: oklch(0.705 0.015 286.067);
+  /* Light = warm paper */
+  --background: #f4efe4;
+  --foreground: #1b1a17;
+  --card: #fbf8f0;
+  --card-foreground: #1b1a17;
+  --popover: #fbf8f0;
+  --popover-foreground: #1b1a17;
+  --primary: #b1811f;           /* brass, darker for light bg contrast */
+  --primary-foreground: #fbf8f0;
+  --secondary: #ece5d5;
+  --secondary-foreground: #1b1a17;
+  --muted: #ece5d5;
+  --muted-foreground: #6b6656;
+  --accent: #ece5d5;
+  --accent-foreground: #1b1a17;
+  --destructive: #c24631;
+  --border: rgba(27,26,23,.10);
+  --input: rgba(27,26,23,.14);
+  --ring: #b1811f;
 }
-
 .dark {
-  --background: oklch(0.141 0.005 285.823);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.006 285.885);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.006 285.885);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.92 0.004 286.32);
-  --primary-foreground: oklch(0.21 0.006 285.885);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.552 0.016 285.938);
+  --background: #111013;        /* pit */
+  --foreground: #ede6d6;        /* ivory */
+  --card: #1a1a1e;              /* rostrum */
+  --card-foreground: #ede6d6;
+  --popover: #1a1a1e;
+  --popover-foreground: #ede6d6;
+  --primary: #d4a03a;           /* brass */
+  --primary-foreground: #1a1305;
+  --secondary: #212127;
+  --secondary-foreground: #ede6d6;
+  --muted: #212127;
+  --muted-foreground: #8a8578;  /* ash */
+  --accent: #212127;
+  --accent-foreground: #ede6d6;
+  --destructive: #d6543c;       /* forte */
+  --border: rgba(237,230,214,.08);
+  --input: rgba(237,230,214,.12);
+  --ring: #d4a03a;
 }
 
 @theme inline {
+  --font-sans: 'Geist Variable', system-ui, sans-serif;
+  --font-serif: 'Instrument Serif', Georgia, serif;
+  --font-mono: 'Geist Mono Variable', monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -77,5 +80,32 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* downbeat signature — brass left rail with metronome pulse */
+@keyframes downbeat {
+  0%, 100% { opacity: 0.35 }
+  50% { opacity: 1 }
+}
+.card-running {
+  position: relative;
+  box-shadow: -2px 0 0 var(--primary);
+}
+.card-running::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 1px 0 0 1px;
+  animation: downbeat 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-running::before {
+    animation: none;
+    opacity: 1;
   }
 }

@@ -120,6 +120,64 @@ test('settings table migration is idempotent across two openings of the same fil
   expect(db2.getSetting('theme')).toBe('dark')
 })
 
+test('new ticket has priority/dueDate/assignee null and empty tags', () => {
+  const db = new Db(':memory:')
+  const p = db.createProject('p', '/tmp/p')
+  const t = db.createTicket(p.id, 'title', 'desc')
+  const got = db.getTicket(t.id)
+  expect(got.priority).toBeNull()
+  expect(got.dueDate).toBeNull()
+  expect(got.assigneeAgentId).toBeNull()
+  expect(got.tags).toEqual([])
+})
+
+test('listTickets carries comment and attachment counts', () => {
+  const db = new Db(':memory:')
+  const p = db.createProject('p', '/tmp/p')
+  const t = db.createTicket(p.id, 'title', 'desc')
+  db.addComment(t.id, 'human', 'hi', 'note')
+  db.addComment(t.id, 'Developer', 'done', 'note')
+  db.createAttachment({ ticketId: t.id, filename: 'a.txt', kind: 'text', path: '/tmp/a.txt' })
+  const [row] = db.listTickets(p.id)
+  expect(row.commentCount).toBe(2)
+  expect(row.attachmentCount).toBe(1)
+})
+
+test('createTicket accepts optional fields and a target column', () => {
+  const db = new Db(':memory:')
+  const p = db.createProject('p', '/tmp/p')
+  const review = db.getColumnByRole(p.id, 'review')
+  const t = db.createTicket(p.id, 'x', 'y', {
+    priority: 'high', dueDate: '2026-07-12', tags: ['core', 'ui'], columnId: review.id,
+  })
+  expect(t.priority).toBe('high')
+  expect(t.dueDate).toBe('2026-07-12')
+  expect(t.tags).toEqual(['core', 'ui'])
+  expect(t.columnId).toBe(review.id)
+})
+
+test('updateTicketFields patches only given fields', () => {
+  const db = new Db(':memory:')
+  const p = db.createProject('p', '/tmp/p')
+  const t = db.createTicket(p.id, 'x', 'y')
+  const u = db.updateTicketFields(t.id, { priority: 'low', tags: ['a'] })
+  expect(u.priority).toBe('low')
+  expect(u.tags).toEqual(['a'])
+  expect(u.title).toBe('x') // untouched
+})
+
+test('listRuns returns a ticket runs newest-first', () => {
+  const db = new Db(':memory:')
+  const p = db.createProject('p', '/tmp/p')
+  const t = db.createTicket(p.id, 'x', 'y')
+  const a = db.createAgent('Dev', 'claude', 'sonnet', '', 'auto')
+  db.createRun({ ticketId: t.id, agentId: a.id, status: 'success', tokensIn: 1, tokensOut: 2, durationMs: 10, diff: '' })
+  db.createRun({ ticketId: t.id, agentId: a.id, status: 'failed', tokensIn: 3, tokensOut: 4, durationMs: 20, diff: '' })
+  const runs = db.listRuns(t.id)
+  expect(runs).toHaveLength(2)
+  expect(runs[0].status).toBe('failed') // newest first
+})
+
 test('listProjects / listTickets / listAgents return scoped, ordered rows', () => {
   const db = fresh()
   const p1 = db.createProject('a', '/r/a')

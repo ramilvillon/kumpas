@@ -4,7 +4,7 @@ import type { Comment, Ticket } from './types.js'
 
 const ticket: Ticket = {
   id: 1, projectId: 1, title: 'Fix auth', description: 'Null check missing on line 40',
-  columnId: 1, blocked: 0,
+  columnId: 1, blocked: 0, priority: null, dueDate: null, assigneeAgentId: null, tags: [],
 }
 
 test('includes title and description', () => {
