@@ -12,6 +12,11 @@ export function registerIpc(
   providers: Partial<Record<ProviderName, AgentProvider>>,
 ): void {
   const ATTACH_DIR = join(app.getPath('userData'), 'attachments')
+  // Only files the user actually chose via the pickFiles dialog may be attached.
+  // A compromised renderer can call addAttachment with any string, so main never
+  // trusts a renderer-supplied path — it must be one this dialog returned. Exact
+  // match against already-resolved absolute paths, so `..` traversal can't apply.
+  const pickedPaths = new Set<string>()
 
   ipcMain.handle(CHANNELS.listProjects, () => db.listProjects())
 
@@ -59,9 +64,14 @@ export function registerIpc(
   ipcMain.handle(CHANNELS.listRuns, (_e, ticketId) => db.listRuns(ticketId))
   ipcMain.handle(CHANNELS.pickFiles, async () => {
     const r = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'] })
-    return r.canceled ? [] : r.filePaths
+    if (r.canceled) return []
+    for (const p of r.filePaths) pickedPaths.add(p)
+    return r.filePaths
   })
   ipcMain.handle(CHANNELS.addAttachment, (_e, ticketId: number, sourcePath: string) => {
+    if (!pickedPaths.has(sourcePath)) {
+      throw new Error('attachment source not permitted: choose the file via the picker')
+    }
     const meta = copyIntoStore(ATTACH_DIR, sourcePath)
     return db.createAttachment({ ticketId, ...meta })
   })
