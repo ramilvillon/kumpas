@@ -118,7 +118,7 @@ export function NewTaskModal({ open, onOpenChange, projectId, columns, agents, o
           {/* Title */}
           <input
             ref={titleRef}
-            className="w-full bg-transparent border-b border-border text-foreground font-serif text-xl pb-2 pt-1 outline-none placeholder:text-muted-foreground"
+            className="w-full bg-transparent border-b border-border text-foreground text-lg font-medium pb-2 pt-1 outline-none placeholder:text-muted-foreground"
             placeholder="What needs doing?"
             value={title}
             onChange={(e) => setTitle(e.target.value)}

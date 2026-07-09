@@ -74,7 +74,7 @@ export default function App() {
             <span className="absolute left-[9px] top-px h-[18px] w-0.5 origin-bottom rotate-[24deg] rounded-sm bg-primary" />
             <span className="absolute bottom-0 left-[7px] h-1.5 w-1.5 rounded-full bg-primary" />
           </span>
-          <span className="font-serif text-[23px] leading-none tracking-[0.3px]">Kumpas</span>
+          <span className="font-display text-[19px] leading-none tracking-[0.08em]">Kumpas</span>
           <span className="ml-auto text-[11px] text-muted-foreground">▾</span>
         </div>
 
@@ -96,7 +96,7 @@ export default function App() {
         {/* PROJECTS group */}
         <div className="mt-4">
           <div className="flex items-center px-1 pb-1.5">
-            <h4 className="flex-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+            <h4 className="font-display flex-1 text-[9px] uppercase tracking-[0.18em] text-muted-foreground/70">
               Projects
             </h4>
             <button
@@ -133,7 +133,7 @@ export default function App() {
 
         {/* OTHER group */}
         <div>
-          <h4 className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+          <h4 className="font-display px-1 pb-1.5 text-[9px] uppercase tracking-[0.18em] text-muted-foreground/70">
             Other
           </h4>
           {/* ponytail: Settings is static — no feature behind it yet */}

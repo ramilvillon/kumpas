@@ -67,7 +67,7 @@ export function Board({ projectId }: { projectId: number }) {
       {/* Tabs-lite row */}
       <div className="mb-[18px] flex items-baseline justify-between border-b border-border">
         <span
-          className="pb-[9px] text-[13px] text-foreground"
+          className="font-display pb-[9px] text-[12px] tracking-[0.08em] text-foreground"
           style={{ boxShadow: 'inset 0 -2px 0 var(--primary)' }}
         >
           Tasks
@@ -88,7 +88,7 @@ export function Board({ projectId }: { projectId: number }) {
             <div key={col.id} className="min-w-52 flex-1">
               {/* Column header */}
               <div className="flex items-center gap-2 px-1 pb-2.5 pt-0.5">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
+                <span className="font-display text-[10px] uppercase tracking-[0.13em] text-muted-foreground">
                   {col.name}
                 </span>
                 <span className="rounded-full bg-card px-[7px] py-px font-mono text-[11px] text-muted-foreground">
