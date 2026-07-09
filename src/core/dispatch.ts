@@ -23,6 +23,7 @@ export async function dispatch(
   // editing/deletion.
   const ticket = db.getTicket(ticketId)
   const agent = db.getAgent(agentId)
+  if (agent.archived) throw new Error(`Agent '${agent.name}' is archived and cannot be dispatched`)
   const project = db.getProject(ticket.projectId)
 
   const todoCol = db.getColumnByRole(ticket.projectId, 'todo')

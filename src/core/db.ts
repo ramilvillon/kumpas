@@ -201,7 +201,7 @@ export class Db {
     const sets: string[] = []
     const vals: unknown[] = []
     for (const [k, v] of Object.entries(patch)) {
-      if (!(k in col)) continue
+      if (!Object.hasOwn(col, k)) continue
       sets.push(`${col[k]} = ?`)
       vals.push(k === 'tags' ? JSON.stringify(v) : (v ?? null))
     }
@@ -321,7 +321,7 @@ export class Db {
     const sets: string[] = []
     const vals: unknown[] = []
     for (const [k, v] of Object.entries(patch)) {
-      if (!(k in col)) continue
+      if (!Object.hasOwn(col, k)) continue
       sets.push(`${col[k]} = ?`)
       vals.push(k === 'archived' ? (v ? 1 : 0) : v)
     }

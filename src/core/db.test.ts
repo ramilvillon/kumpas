@@ -235,3 +235,12 @@ test('migration v4 upgrades an existing v3 db and preserves agent rows', () => {
   expect(agents[0].name).toBe('Old Hand')
   expect(agents[0].archived).toBe(false)
 })
+
+test('update patch loops ignore prototype keys like constructor', () => {
+  const db = new Db(':memory:')
+  const a = db.createAgent('Dev', 'claude', 'claude-sonnet-5', 'p', 'read')
+  expect(db.updateAgent(a.id, { constructor: 'x' } as never).name).toBe('Dev')
+  const proj = db.createProject('demo', '/repo/demo')
+  const t = db.createTicket(proj.id, 'T', 'd')
+  expect(db.updateTicketFields(t.id, { constructor: 'x' } as never).title).toBe('T')
+})
