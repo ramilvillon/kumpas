@@ -195,7 +195,7 @@ export function TicketDrawer({
             {/* Scrollable body */}
             <div className="flex-1 overflow-y-auto px-[18px] py-4">
               {/* Title */}
-              <h2 className="mb-4 font-serif text-[25px] font-normal leading-[1.2]">
+              <h2 className="mb-4 text-[19px] font-medium leading-[1.3]">
                 {ticket.title}
               </h2>
 
