@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { Agent, Column, Run, Ticket } from '../../core/types'
 import { api } from './api'
 import { Button } from '@/components/ui/button'
@@ -11,7 +11,7 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
-export function Board({ projectId }: { projectId: number }) {
+export function Board({ projectId, sidebarToggle }: { projectId: number; sidebarToggle?: ReactNode }) {
   const [columns, setColumns] = useState<Column[]>([])
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
@@ -65,13 +65,16 @@ export function Board({ projectId }: { projectId: number }) {
   return (
     <div className="flex h-full flex-col px-[22px] py-5">
       {/* Tabs-lite row */}
-      <div className="mb-[18px] flex items-baseline justify-between border-b border-border">
-        <span
-          className="font-display pb-[9px] text-[12px] tracking-[0.08em] text-foreground"
-          style={{ boxShadow: 'inset 0 -2px 0 var(--primary)' }}
-        >
-          Tasks
-        </span>
+      <div className="mb-[18px] flex items-center justify-between border-b border-border">
+        <div className="flex items-center gap-[9px]">
+          {sidebarToggle}
+          <span
+            className="font-display self-end pb-[9px] text-[12px] tracking-[0.08em] text-foreground"
+            style={{ boxShadow: 'inset 0 -2px 0 var(--primary)' }}
+          >
+            Tasks
+          </span>
+        </div>
         <Button
           onClick={() => setNewTaskOpen(true)}
           className="mb-[9px] inline-flex items-center gap-[7px]"
