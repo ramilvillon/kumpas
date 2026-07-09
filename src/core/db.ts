@@ -11,6 +11,15 @@ type TicketFields = {
   tags?: string[]
 }
 
+type AgentFields = {
+  name?: string
+  provider?: ProviderName
+  model?: string
+  systemPrompt?: string
+  permissionLevel?: string
+  archived?: boolean
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,7 +83,7 @@ CREATE TABLE IF NOT EXISTS attachments (
 // Ordered migrations: index i brings a DB from user_version i to i+1.
 // v1 = the initial schema above. Ship future schema changes by APPENDING an
 // ALTER string as a new element — never edit an already-released migration.
-const MIGRATIONS: string[] = [
+export const MIGRATIONS: string[] = [
   SCHEMA,
   'CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);',
   // v2 → v3: ticket task-fields for the Pit UI.
@@ -82,6 +91,8 @@ const MIGRATIONS: string[] = [
    ALTER TABLE tickets ADD COLUMN due_date TEXT;
    ALTER TABLE tickets ADD COLUMN assignee_agent_id INTEGER REFERENCES agents(id);
    ALTER TABLE tickets ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';`,
+  // v3 → v4: soft-delete for agents.
+  'ALTER TABLE agents ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;',
 ]
 
 const DEFAULT_COLUMNS: { name: string; role: ColumnRole | null }[] = [
@@ -276,24 +287,48 @@ export class Db {
     return this.getAgent(Number(info.lastInsertRowid))
   }
 
+  private mapAgent(row: any): Agent {
+    return { ...row, archived: !!row.archived }
+  }
+
   getAgent(id: number): Agent {
-    return this.db
+    const row = this.db
       .prepare(
         `SELECT id, name, provider, model, system_prompt AS systemPrompt,
-                permission_level AS permissionLevel
+                permission_level AS permissionLevel, archived
          FROM agents WHERE id = ?`,
       )
-      .get(id) as Agent
+      .get(id)
+    return this.mapAgent(row)
   }
 
   listAgents(): Agent[] {
-    return this.db
+    const rows = this.db
       .prepare(
         `SELECT id, name, provider, model, system_prompt AS systemPrompt,
-                permission_level AS permissionLevel
+                permission_level AS permissionLevel, archived
          FROM agents ORDER BY id ASC`,
       )
-      .all() as Agent[]
+      .all()
+    return rows.map((r) => this.mapAgent(r))
+  }
+
+  updateAgent(id: number, patch: AgentFields): Agent {
+    const col: Record<string, string> = {
+      name: 'name', provider: 'provider', model: 'model',
+      systemPrompt: 'system_prompt', permissionLevel: 'permission_level', archived: 'archived',
+    }
+    const sets: string[] = []
+    const vals: unknown[] = []
+    for (const [k, v] of Object.entries(patch)) {
+      if (!(k in col)) continue
+      sets.push(`${col[k]} = ?`)
+      vals.push(k === 'archived' ? (v ? 1 : 0) : v)
+    }
+    if (sets.length) {
+      this.db.prepare(`UPDATE agents SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id)
+    }
+    return this.getAgent(id)
   }
 
   createRun(r: {

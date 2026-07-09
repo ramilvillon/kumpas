@@ -2,7 +2,8 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
-import { Db } from './db.js'
+import Database from 'better-sqlite3'
+import { Db, MIGRATIONS } from './db.js'
 
 function fresh() {
   return new Db(':memory:')
@@ -191,4 +192,46 @@ test('listProjects / listTickets / listAgents return scoped, ordered rows', () =
   expect(db.listTickets(p1.id).map((t) => t.title)).toEqual(['t1', 't2'])
   expect(db.listTickets(p2.id).map((t) => t.title)).toEqual(['t3'])
   expect(db.listAgents().map((a) => a.name)).toEqual(['Dev'])
+})
+
+test('agents round-trip archived as boolean; updateAgent patches every field', () => {
+  const db = new Db(':memory:')
+  const a = db.createAgent('Dev', 'claude', 'claude-sonnet-5', 'implement it', 'auto')
+  expect(a.archived).toBe(false)
+
+  const edited = db.updateAgent(a.id, {
+    name: 'Dev 2', provider: 'claude', model: 'claude-opus-4-8',
+    systemPrompt: 'implement it well', permissionLevel: 'edit',
+  })
+  expect(edited).toMatchObject({
+    id: a.id, name: 'Dev 2', model: 'claude-opus-4-8',
+    systemPrompt: 'implement it well', permissionLevel: 'edit', archived: false,
+  })
+
+  expect(db.updateAgent(a.id, { archived: true }).archived).toBe(true)
+  expect(db.listAgents()[0].archived).toBe(true)
+  expect(db.updateAgent(a.id, { archived: false }).archived).toBe(false)
+
+  // unknown keys are ignored, not written
+  expect(db.updateAgent(a.id, { nope: 'x' } as never).name).toBe('Dev 2')
+})
+
+test('migration v4 upgrades an existing v3 db and preserves agent rows', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kumpas-mig4-'))
+  const file = join(dir, 'v3.db')
+  // Build a genuine v3 database by replaying the first three released migrations.
+  const raw = new Database(file)
+  for (const sql of MIGRATIONS.slice(0, 3)) raw.exec(sql)
+  raw.pragma('user_version = 3')
+  raw.prepare(
+    `INSERT INTO agents (name, provider, model, system_prompt, permission_level)
+     VALUES ('Old Hand', 'claude', 'claude-sonnet-5', 'p', 'read')`,
+  ).run()
+  raw.close()
+
+  const db = new Db(file) // opening migrates v3 → v4
+  const agents = db.listAgents()
+  expect(agents).toHaveLength(1)
+  expect(agents[0].name).toBe('Old Hand')
+  expect(agents[0].archived).toBe(false)
 })
