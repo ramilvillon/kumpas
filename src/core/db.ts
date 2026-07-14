@@ -1,13 +1,14 @@
 import Database from 'better-sqlite3'
 import type {
   ProviderName, Agent, Attachment, AttachmentKind, Column, ColumnRole, Comment,
-  CommentKind, Project, Run, RunStatus, Ticket, TicketPriority,
+  CommentKind, Membership, Project, Run, RunStatus, Team, Ticket, TicketPriority,
 } from './types.js'
 
 type TicketFields = {
   priority?: TicketPriority | null
   dueDate?: string | null
   assigneeAgentId?: number | null
+  teamId?: number | null
   tags?: string[]
 }
 
@@ -19,6 +20,8 @@ type AgentFields = {
   permissionLevel?: string
   archived?: boolean
 }
+
+type TeamFields = { name?: string; archived?: boolean }
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
@@ -93,6 +96,18 @@ export const MIGRATIONS: string[] = [
    ALTER TABLE tickets ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';`,
   // v3 → v4: soft-delete for agents.
   'ALTER TABLE agents ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;',
+  // v4 → v5: teams as dispatch units + agent membership + ticket assignment.
+  `CREATE TABLE IF NOT EXISTS teams (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     name TEXT NOT NULL,
+     archived INTEGER NOT NULL DEFAULT 0
+   );
+   CREATE TABLE IF NOT EXISTS agent_teams (
+     agent_id INTEGER NOT NULL REFERENCES agents(id),
+     team_id INTEGER NOT NULL REFERENCES teams(id),
+     PRIMARY KEY (agent_id, team_id)
+   );
+   ALTER TABLE tickets ADD COLUMN team_id INTEGER REFERENCES teams(id);`,
 ]
 
 const DEFAULT_COLUMNS: { name: string; role: ColumnRole | null }[] = [
@@ -179,12 +194,12 @@ export class Db {
     const columnId = opts.columnId ?? this.getColumnByRole(projectId, 'todo').id
     const info = this.db.prepare(
       `INSERT INTO tickets
-         (project_id, title, description, column_id, priority, due_date, assignee_agent_id, tags)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (project_id, title, description, column_id, priority, due_date, assignee_agent_id, team_id, tags)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       projectId, title, description, columnId,
       opts.priority ?? null, opts.dueDate ?? null, opts.assigneeAgentId ?? null,
-      JSON.stringify(opts.tags ?? []),
+      opts.teamId ?? null, JSON.stringify(opts.tags ?? []),
     )
     return this.getTicket(Number(info.lastInsertRowid))
   }
@@ -196,7 +211,8 @@ export class Db {
   ): Ticket {
     const col: Record<string, string> = {
       title: 'title', description: 'description', columnId: 'column_id',
-      priority: 'priority', dueDate: 'due_date', assigneeAgentId: 'assignee_agent_id', tags: 'tags',
+      priority: 'priority', dueDate: 'due_date', assigneeAgentId: 'assignee_agent_id',
+      teamId: 'team_id', tags: 'tags',
     }
     const sets: string[] = []
     const vals: unknown[] = []
@@ -227,7 +243,7 @@ export class Db {
   getTicket(id: number): Ticket {
     const row = this.db.prepare(
       `SELECT id, project_id AS projectId, title, description, column_id AS columnId,
-              blocked, priority, due_date AS dueDate, assignee_agent_id AS assigneeAgentId, tags
+              blocked, priority, due_date AS dueDate, assignee_agent_id AS assigneeAgentId, team_id AS teamId, tags
        FROM tickets WHERE id = ?`,
     ).get(id)
     return this.mapTicket(row)
@@ -237,7 +253,7 @@ export class Db {
     const rows = this.db.prepare(
       `SELECT t.id, t.project_id AS projectId, t.title, t.description, t.column_id AS columnId,
               t.blocked, t.priority, t.due_date AS dueDate,
-              t.assignee_agent_id AS assigneeAgentId, t.tags,
+              t.assignee_agent_id AS assigneeAgentId, t.team_id AS teamId, t.tags,
               (SELECT COUNT(*) FROM comments c WHERE c.ticket_id = t.id) AS commentCount,
               (SELECT COUNT(*) FROM attachments a WHERE a.ticket_id = t.id) AS attachmentCount
        FROM tickets t WHERE t.project_id = ? ORDER BY t.id ASC`,
@@ -329,6 +345,54 @@ export class Db {
       this.db.prepare(`UPDATE agents SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id)
     }
     return this.getAgent(id)
+  }
+
+  private mapTeam(row: any): Team {
+    return { ...row, archived: !!row.archived }
+  }
+
+  createTeam(name: string): Team {
+    const info = this.db.prepare('INSERT INTO teams (name) VALUES (?)').run(name)
+    return this.getTeam(Number(info.lastInsertRowid))
+  }
+
+  getTeam(id: number): Team {
+    const row = this.db.prepare('SELECT id, name, archived FROM teams WHERE id = ?').get(id)
+    return this.mapTeam(row)
+  }
+
+  listTeams(): Team[] {
+    const rows = this.db.prepare('SELECT id, name, archived FROM teams ORDER BY id ASC').all()
+    return rows.map((r) => this.mapTeam(r))
+  }
+
+  updateTeam(id: number, patch: TeamFields): Team {
+    const col: Record<string, string> = { name: 'name', archived: 'archived' }
+    const sets: string[] = []
+    const vals: unknown[] = []
+    for (const [k, v] of Object.entries(patch)) {
+      if (!Object.hasOwn(col, k)) continue
+      sets.push(`${col[k]} = ?`)
+      vals.push(k === 'archived' ? (v ? 1 : 0) : v)
+    }
+    if (sets.length) {
+      this.db.prepare(`UPDATE teams SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id)
+    }
+    return this.getTeam(id)
+  }
+
+  listMemberships(): Membership[] {
+    return this.db
+      .prepare('SELECT agent_id AS agentId, team_id AS teamId FROM agent_teams ORDER BY team_id ASC, agent_id ASC')
+      .all() as Membership[]
+  }
+
+  setAgentTeams(agentId: number, teamIds: number[]): void {
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM agent_teams WHERE agent_id = ?').run(agentId)
+      const ins = this.db.prepare('INSERT INTO agent_teams (agent_id, team_id) VALUES (?, ?)')
+      for (const t of teamIds) ins.run(agentId, t)
+    })()
   }
 
   createRun(r: {

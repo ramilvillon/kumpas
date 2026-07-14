@@ -244,3 +244,63 @@ test('update patch loops ignore prototype keys like constructor', () => {
   const t = db.createTicket(proj.id, 'T', 'd')
   expect(db.updateTicketFields(t.id, { constructor: 'x' } as never).title).toBe('T')
 })
+
+test('teams round-trip; updateTeam patches name and archived as boolean', () => {
+  const db = new Db(':memory:')
+  const t = db.createTeam('Backend')
+  expect(t).toMatchObject({ name: 'Backend', archived: false })
+  expect(db.updateTeam(t.id, { name: 'Platform' }).name).toBe('Platform')
+  expect(db.updateTeam(t.id, { archived: true }).archived).toBe(true)
+  expect(db.listTeams()[0].archived).toBe(true)
+  expect(db.updateTeam(t.id, { archived: false }).archived).toBe(false)
+  expect(db.updateTeam(t.id, { constructor: 'x' } as never).name).toBe('Platform')
+})
+
+test('setAgentTeams atomically replaces the membership set', () => {
+  const db = new Db(':memory:')
+  const a = db.createAgent('Dev', 'claude', 'claude-sonnet-5', 'p', 'read')
+  const t1 = db.createTeam('Backend')
+  const t2 = db.createTeam('Frontend')
+  const t3 = db.createTeam('Docs')
+  db.setAgentTeams(a.id, [t1.id, t2.id])
+  expect(db.listMemberships()).toEqual([
+    { agentId: a.id, teamId: t1.id },
+    { agentId: a.id, teamId: t2.id },
+  ])
+  db.setAgentTeams(a.id, [t3.id])
+  expect(db.listMemberships()).toEqual([{ agentId: a.id, teamId: t3.id }])
+  db.setAgentTeams(a.id, [])
+  expect(db.listMemberships()).toEqual([])
+})
+
+test('ticket teamId: create with, patch, null out', () => {
+  const db = new Db(':memory:')
+  const p = db.createProject('demo', '/repo/demo')
+  const team = db.createTeam('Backend')
+  const t = db.createTicket(p.id, 'T', 'd', { teamId: team.id })
+  expect(t.teamId).toBe(team.id)
+  expect(db.listTickets(p.id)[0].teamId).toBe(team.id)
+  const other = db.createTeam('Frontend')
+  expect(db.updateTicketFields(t.id, { teamId: other.id }).teamId).toBe(other.id)
+  expect(db.updateTicketFields(t.id, { teamId: null }).teamId).toBeNull()
+  expect(db.createTicket(p.id, 'T2', 'd').teamId).toBeNull()
+})
+
+test('migration v5 upgrades an existing v4 db and preserves rows', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kumpas-mig5-'))
+  const file = join(dir, 'v4.db')
+  const raw = new Database(file)
+  for (const sql of MIGRATIONS.slice(0, 4)) raw.exec(sql)
+  raw.pragma('user_version = 4')
+  raw.prepare(
+    `INSERT INTO agents (name, provider, model, system_prompt, permission_level)
+     VALUES ('Old Hand', 'claude', 'claude-sonnet-5', 'p', 'read')`,
+  ).run()
+  raw.close()
+
+  const db = new Db(file) // opening migrates v4 → v5
+  expect(db.listAgents()[0].name).toBe('Old Hand')
+  const team = db.createTeam('Backend')
+  db.setAgentTeams(db.listAgents()[0].id, [team.id])
+  expect(db.listMemberships()).toHaveLength(1)
+})

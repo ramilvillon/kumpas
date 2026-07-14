@@ -31,6 +31,7 @@ export interface Ticket {
   priority: TicketPriority | null
   dueDate: string | null // ISO YYYY-MM-DD
   assigneeAgentId: number | null
+  teamId: number | null
   tags: string[]
   commentCount?: number // populated by listTickets only
   attachmentCount?: number
@@ -57,6 +58,19 @@ export interface Agent {
   systemPrompt: string
   permissionLevel: string
   archived: boolean
+}
+
+// A team is the unit work gets pointed at: tickets are assigned to a team,
+// and auto-dispatch (future) picks the acting agent from the ticket's team.
+export interface Team {
+  id: number
+  name: string
+  archived: boolean
+}
+
+export interface Membership {
+  agentId: number
+  teamId: number
 }
 
 export interface Run {
