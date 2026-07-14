@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import type { Agent, Column, Run, Ticket } from '../../core/types'
+import type { Agent, Column, Run, Team, Ticket } from '../../core/types'
 import { api } from './api'
 import { Button } from '@/components/ui/button'
 import { NewTaskModal } from './NewTaskModal'
@@ -32,26 +32,30 @@ export function Board({
   const [columns, setColumns] = useState<Column[]>([])
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
+  const [teams, setTeams] = useState<Team[]>([])
   const [busyTicketId, setBusyTicketId] = useState<number | null>(null)
   const [results, setResults] = useState<Record<number, string>>({})
   const [openTicketId, setOpenTicketId] = useState<number | null>(null)
   const [newTaskOpen, setNewTaskOpen] = useState(false)
 
   const refresh = useCallback(async () => {
-    const [cols, tks, ags] = await Promise.all([
+    const [cols, tks, ags, tms] = await Promise.all([
       api.listColumns(projectId),
       api.listTickets(projectId),
       api.listAgents(),
+      api.listTeams(),
     ])
     setColumns(cols)
     setTickets(tks)
     setAgents(ags)
+    setTeams(tms)
   }, [projectId])
 
   // Archived agents are filtered out of picker/dispatch OPTIONS only; display
   // (assignee avatar/select value) always uses the full `agents` list so an
   // archived assignee still shows up on tickets it's already assigned to.
   const activeAgents = agents.filter((a) => !a.archived)
+  const activeTeams = teams.filter((t) => !t.archived)
 
   useEffect(() => {
     refresh()
@@ -152,6 +156,7 @@ export function Board({
                     key={t.id}
                     ticket={t}
                     agents={agents}
+                    teams={teams}
                     busy={busyTicketId === t.id}
                     result={results[t.id] ?? null}
                     onOpen={() => setOpenTicketId(t.id)}
@@ -167,6 +172,7 @@ export function Board({
         ticket={openTicket}
         columns={columns}
         agents={agents}
+        teams={teams}
         busy={openTicket !== null && busyTicketId === openTicket.id}
         result={openTicket ? (results[openTicket.id] ?? null) : null}
         onDispatch={dispatchTicket}
@@ -179,6 +185,7 @@ export function Board({
         projectId={projectId}
         columns={columns}
         agents={activeAgents}
+        teams={activeTeams}
         onCreated={() => {
           setNewTaskOpen(false)
           refresh()
@@ -191,17 +198,20 @@ export function Board({
 function TicketCard({
   ticket,
   agents,
+  teams,
   busy,
   result,
   onOpen,
 }: {
   ticket: Ticket
   agents: Agent[]
+  teams: Team[]
   busy: boolean
   result: string | null
   onOpen: () => void
 }) {
   const assignee = agents.find((a) => a.id === ticket.assigneeAgentId)
+  const team = teams.find((t) => t.id === ticket.teamId)
   const hasChips = ticket.tags.length > 0 || ticket.priority != null
 
   return (
@@ -254,6 +264,11 @@ function TicketCard({
         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-secondary text-[9.5px] font-semibold">
           {assignee ? initials(assignee.name) : '·'}
         </span>
+        {team && (
+          <span className="font-display rounded-[5px] bg-primary/10 px-[7px] py-[3px] text-[8px] uppercase tracking-[0.06em] text-primary">
+            {team.name}
+          </span>
+        )}
         {/* Due date */}
         {ticket.dueDate && (
           <span className="inline-flex items-center gap-1 font-mono text-[11px]">

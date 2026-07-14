@@ -6,7 +6,10 @@ import { dispatch } from '../core/dispatch.js'
 import { isGitRepo } from '../core/git.js'
 import { copyIntoStore } from '../core/attachmentStore.js'
 import { CHANNELS } from '../shared/api.js'
-import { validateAgentCreate, validateAgentPatch, type AgentCreateInput, type AgentPatch } from '../core/agentInput.js'
+import {
+  validateAgentCreate, validateAgentPatch, validateTeamCreate, validateTeamIds,
+  validateTeamPatch, type AgentCreateInput, type AgentPatch,
+} from '../core/agentInput.js'
 
 export function registerIpc(
   db: Db,
@@ -56,6 +59,22 @@ export function registerIpc(
     if (typeof p.name === 'string') p.name = p.name.trim()
     if (typeof p.model === 'string') p.model = p.model.trim()
     return db.updateAgent(agentId, p)
+  })
+  ipcMain.handle(CHANNELS.listTeams, () => db.listTeams())
+  ipcMain.handle(CHANNELS.createTeam, (_e, input: { name: string }) => {
+    validateTeamCreate(input)
+    return db.createTeam(input.name.trim())
+  })
+  ipcMain.handle(CHANNELS.updateTeam, (_e, teamId: number, patch: { name?: string; archived?: boolean }) => {
+    validateTeamPatch(patch)
+    const p = { ...patch }
+    if (typeof p.name === 'string') p.name = p.name.trim()
+    return db.updateTeam(teamId, p)
+  })
+  ipcMain.handle(CHANNELS.listMemberships, () => db.listMemberships())
+  ipcMain.handle(CHANNELS.setAgentTeams, (_e, agentId: number, teamIds: unknown) => {
+    validateTeamIds(teamIds)
+    db.setAgentTeams(agentId, teamIds)
   })
   ipcMain.handle(CHANNELS.dispatch, (_e, ticketId: number, agentId: number) =>
     dispatch({ db, providers }, ticketId, agentId),
