@@ -65,6 +65,10 @@ export function TicketDrawer({
   const [posting, setPosting] = useState(false)
   const descRef = useRef<HTMLTextAreaElement>(null)
 
+  // Archived agents are excluded from picker/dispatch OPTIONS only; display
+  // (assignee lookup below) stays on the full `agents` list.
+  const activeAgents = agents.filter((a) => !a.archived)
+
   const ticketId = ticket?.id
 
   // ponytail: intentional single effect keyed on ticketId — resets all local state and reloads
@@ -152,7 +156,7 @@ export function TicketDrawer({
     onChanged()
   }
 
-  const chosenAgentId = agentId ?? agents[0]?.id ?? null
+  const chosenAgentId = agentId ?? activeAgents[0]?.id ?? null
   const col = columns.find((c) => c.id === ticket?.columnId)
   const assignee = agents.find((a) => a.id === ticket?.assigneeAgentId)
 
@@ -219,11 +223,16 @@ export function TicketDrawer({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Unassigned</SelectItem>
-                      {agents.map((a) => (
+                      {activeAgents.map((a) => (
                         <SelectItem key={a.id} value={String(a.id)}>
                           {a.name}
                         </SelectItem>
                       ))}
+                      {assignee?.archived && (
+                        <SelectItem disabled value={String(assignee.id)}>
+                          {assignee.name} (archived)
+                        </SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -471,7 +480,7 @@ export function TicketDrawer({
                   <SelectValue placeholder="Pick an agent" />
                 </SelectTrigger>
                 <SelectContent>
-                  {agents.map((a) => (
+                  {activeAgents.map((a) => (
                     <SelectItem key={a.id} value={String(a.id)}>
                       {a.name}
                     </SelectItem>

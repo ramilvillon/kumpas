@@ -19,6 +19,14 @@ export interface KumpasApi {
   updateTicket(ticketId: number, patch: Record<string, unknown>): Promise<Ticket>
   moveTicket(ticketId: number, columnId: number): Promise<void>
   listAgents(): Promise<Agent[]>
+  createAgent(input: {
+    name: string
+    provider: 'claude' | 'agy' | 'codex'
+    model: string
+    systemPrompt: string
+    permissionLevel: string
+  }): Promise<Agent>
+  updateAgent(agentId: number, patch: Record<string, unknown>): Promise<Agent>
   dispatch(ticketId: number, agentId: number): Promise<Run>
   getSetting(key: string): Promise<string | null>
   setSetting(key: string, value: string): Promise<void>
@@ -41,6 +49,8 @@ export const CHANNELS: Record<keyof KumpasApi, string> = {
   updateTicket: 'tickets:update',
   moveTicket: 'tickets:move',
   listAgents: 'agents:list',
+  createAgent: 'agents:create',
+  updateAgent: 'agents:update',
   dispatch: 'dispatch:run',
   getSetting: 'settings:get',
   setSetting: 'settings:set',

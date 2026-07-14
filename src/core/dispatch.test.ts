@@ -100,3 +100,15 @@ test('an provider this build lacks (e.g. agy in v1) yields a failed run with a c
   expect(db.listComments(ticketId)[0].body).toContain('agy')
   expect(db.getTicket(ticketId).columnId).toBe(db.getColumnByRole(projectId, 'todo').id)
 })
+
+test('dispatch refuses an archived agent', async () => {
+  const { db, ticketId, agentId } = setup()
+  db.updateAgent(agentId, { archived: true })
+  const provider: AgentProvider = {
+    run: async () => ({ resultText: 'implemented', tokensIn: 10, tokensOut: 3 }),
+  }
+  await expect(
+    dispatch({ db, providers: { claude: provider }, captureDiff: fakeDiff }, ticketId, agentId),
+  ).rejects.toThrow(/archived/)
+  expect(db.listRuns(ticketId)).toHaveLength(0)
+})

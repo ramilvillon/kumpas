@@ -4,7 +4,7 @@ import type { Agent } from './types.js'
 
 const role: Agent = {
   id: 1, name: 'Developer', provider: 'claude', model: 'claude-sonnet-5',
-  systemPrompt: 'you write code', permissionLevel: 'edit',
+  systemPrompt: 'you write code', permissionLevel: 'edit', archived: false,
 }
 
 const okJson = JSON.stringify({

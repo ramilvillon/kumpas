@@ -56,6 +56,7 @@ export interface Agent {
   model: string
   systemPrompt: string
   permissionLevel: string
+  archived: boolean
 }
 
 export interface Run {
