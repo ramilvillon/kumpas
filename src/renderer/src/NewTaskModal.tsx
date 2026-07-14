@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Agent, Column, TicketPriority } from '../../core/types'
+import type { Agent, Column, Team, TicketPriority } from '../../core/types'
 import { api, baseName } from './api'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,15 +23,17 @@ interface Props {
   projectId: number
   columns: Column[]
   agents: Agent[]
+  teams: Team[]
   onCreated: () => void
 }
 
-export function NewTaskModal({ open, onOpenChange, projectId, columns, agents, onCreated }: Props) {
+export function NewTaskModal({ open, onOpenChange, projectId, columns, agents, teams, onCreated }: Props) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [priority, setPriority] = useState<TicketPriority | ''>('')
   const [dueDate, setDueDate] = useState('')
   const [assigneeAgentId, setAssigneeAgentId] = useState<string>('')
+  const [teamId, setTeamId] = useState<string>('')
   const [columnId, setColumnId] = useState<string>('')
   const [tags, setTags] = useState<string[]>([])
   const [tagInput, setTagInput] = useState('')
@@ -55,6 +57,7 @@ export function NewTaskModal({ open, onOpenChange, projectId, columns, agents, o
     setPriority('')
     setDueDate('')
     setAssigneeAgentId('')
+    setTeamId('')
     setTags([])
     setTagInput('')
     setStagedPaths([])
@@ -74,6 +77,7 @@ export function NewTaskModal({ open, onOpenChange, projectId, columns, agents, o
         priority: priority || null,
         dueDate: dueDate || null,
         assigneeAgentId: assigneeAgentId ? Number(assigneeAgentId) : null,
+        teamId: teamId ? Number(teamId) : null,
         tags,
         columnId: columnId ? Number(columnId) : undefined,
       })
@@ -171,6 +175,23 @@ export function NewTaskModal({ open, onOpenChange, projectId, columns, agents, o
                   {agents.map((a) => (
                     <SelectItem key={a.id} value={String(a.id)}>
                       {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Team */}
+            <div>
+              <label className="block text-xs text-muted-foreground mb-1">Team</label>
+              <Select value={teamId} onValueChange={setTeamId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="No team" />
+                </SelectTrigger>
+                <SelectContent>
+                  {teams.map((t) => (
+                    <SelectItem key={t.id} value={String(t.id)}>
+                      {t.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

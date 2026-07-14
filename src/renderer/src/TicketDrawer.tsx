@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Agent, Attachment, Column, Comment, Run, Ticket } from '../../core/types'
+import type { Agent, Attachment, Column, Comment, Run, Team, Ticket } from '../../core/types'
 import { api } from './api'
 import { hue, initials } from './lib/visuals'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
@@ -39,6 +39,7 @@ export function TicketDrawer({
   ticket,
   columns,
   agents,
+  teams,
   busy,
   result,
   onDispatch,
@@ -48,6 +49,7 @@ export function TicketDrawer({
   ticket: Ticket | null
   columns: Column[]
   agents: Agent[]
+  teams: Team[]
   busy: boolean
   result: string | null
   onDispatch: (ticketId: number, agentId: number) => void
@@ -68,6 +70,7 @@ export function TicketDrawer({
   // Archived agents are excluded from picker/dispatch OPTIONS only; display
   // (assignee lookup below) stays on the full `agents` list.
   const activeAgents = agents.filter((a) => !a.archived)
+  const activeTeams = teams.filter((t) => !t.archived)
 
   const ticketId = ticket?.id
 
@@ -159,6 +162,7 @@ export function TicketDrawer({
   const chosenAgentId = agentId ?? activeAgents[0]?.id ?? null
   const col = columns.find((c) => c.id === ticket?.columnId)
   const assignee = agents.find((a) => a.id === ticket?.assigneeAgentId)
+  const ticketTeam = teams.find((t) => t.id === ticket?.teamId)
 
   const TABS: Tab[] = ['description', 'comments', 'attachments', 'activity']
   const tabCount: Record<Tab, number> = {
@@ -231,6 +235,37 @@ export function TicketDrawer({
                       {assignee?.archived && (
                         <SelectItem disabled value={String(assignee.id)}>
                           {assignee.name} (archived)
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Team */}
+                <span className="text-[12px] text-muted-foreground">Team</span>
+                <div>
+                  <Select
+                    value={ticket.teamId ? String(ticket.teamId) : 'none'}
+                    onValueChange={(v) =>
+                      void patchTicket({ teamId: v === 'none' ? null : Number(v) })
+                    }
+                  >
+                    <SelectTrigger
+                      className="h-auto rounded-[7px] border-border bg-secondary px-2.5 text-[12.5px] shadow-none focus-visible:ring-1"
+                      style={{ paddingTop: 5, paddingBottom: 5 }}
+                    >
+                      <SelectValue placeholder="No team" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No team</SelectItem>
+                      {activeTeams.map((t) => (
+                        <SelectItem key={t.id} value={String(t.id)}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                      {ticketTeam?.archived && (
+                        <SelectItem disabled value={String(ticketTeam.id)}>
+                          {ticketTeam.name} (archived)
                         </SelectItem>
                       )}
                     </SelectContent>
