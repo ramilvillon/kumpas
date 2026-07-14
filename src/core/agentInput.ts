@@ -39,3 +39,23 @@ export function validateAgentCreate(input: AgentCreateInput): void {
   }
   validateAgentPatch(input)
 }
+
+export function validateTeamPatch(patch: { name?: string; archived?: boolean }): void {
+  if (patch === null || typeof patch !== 'object') throw new Error('invalid team input')
+  if ('name' in patch && (typeof patch.name !== 'string' || !patch.name.trim()))
+    throw new Error('team name must not be empty')
+  if ('archived' in patch && typeof patch.archived !== 'boolean')
+    throw new Error('archived must be a boolean')
+}
+
+export function validateTeamCreate(input: { name: string }): void {
+  if (input === null || input === undefined || typeof input !== 'object')
+    throw new Error('invalid team input')
+  if (!('name' in input)) throw new Error('missing field: name')
+  validateTeamPatch(input)
+}
+
+export function validateTeamIds(teamIds: unknown): asserts teamIds is number[] {
+  if (!Array.isArray(teamIds) || teamIds.some((t) => !Number.isInteger(t)))
+    throw new Error('teamIds must be an array of integers')
+}

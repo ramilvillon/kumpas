@@ -1,4 +1,4 @@
-import type { Agent, Attachment, Column, Comment, Project, Run, Ticket } from '../core/types.js'
+import type { Agent, Attachment, Column, Comment, Membership, Project, Run, Team, Ticket } from '../core/types.js'
 
 export interface KumpasApi {
   listProjects(): Promise<Project[]>
@@ -12,6 +12,7 @@ export interface KumpasApi {
       priority?: 'low' | 'medium' | 'high' | null
       dueDate?: string | null
       assigneeAgentId?: number | null
+      teamId?: number | null
       tags?: string[]
       columnId?: number
     },
@@ -27,6 +28,11 @@ export interface KumpasApi {
     permissionLevel: string
   }): Promise<Agent>
   updateAgent(agentId: number, patch: Record<string, unknown>): Promise<Agent>
+  listTeams(): Promise<Team[]>
+  createTeam(input: { name: string }): Promise<Team>
+  updateTeam(teamId: number, patch: Record<string, unknown>): Promise<Team>
+  listMemberships(): Promise<Membership[]>
+  setAgentTeams(agentId: number, teamIds: number[]): Promise<void>
   dispatch(ticketId: number, agentId: number): Promise<Run>
   getSetting(key: string): Promise<string | null>
   setSetting(key: string, value: string): Promise<void>
@@ -51,6 +57,11 @@ export const CHANNELS: Record<keyof KumpasApi, string> = {
   listAgents: 'agents:list',
   createAgent: 'agents:create',
   updateAgent: 'agents:update',
+  listTeams: 'teams:list',
+  createTeam: 'teams:create',
+  updateTeam: 'teams:update',
+  listMemberships: 'teams:memberships',
+  setAgentTeams: 'agents:setTeams',
   dispatch: 'dispatch:run',
   getSetting: 'settings:get',
   setSetting: 'settings:set',

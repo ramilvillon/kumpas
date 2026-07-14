@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { validateAgentCreate, validateAgentPatch, type AgentCreateInput } from './agentInput.js'
+import { validateAgentCreate, validateAgentPatch, validateTeamCreate, validateTeamIds, validateTeamPatch, type AgentCreateInput } from './agentInput.js'
 
 const good: AgentCreateInput = {
   name: 'Dev', provider: 'claude', model: 'claude-sonnet-5',
@@ -45,4 +45,25 @@ test('patch: absent keys are not validated; archived must be boolean; junk patch
   expect(() => validateAgentPatch({ archived: true })).not.toThrow()
   expect(() => validateAgentPatch({ archived: 1 as never })).toThrow(/archived/)
   expect(() => validateAgentPatch(null as never)).toThrow()
+})
+
+test('team name must be non-empty on create and patch', () => {
+  expect(() => validateTeamCreate({ name: 'Backend' })).not.toThrow()
+  expect(() => validateTeamCreate({ name: '   ' })).toThrow(/team name/)
+  expect(() => validateTeamCreate({} as never)).toThrow(/missing field: name/)
+  expect(() => validateTeamCreate(undefined as never)).toThrow()
+  expect(() => validateTeamPatch({})).not.toThrow()
+  expect(() => validateTeamPatch({ name: '' })).toThrow(/team name/)
+  expect(() => validateTeamPatch({ archived: true })).not.toThrow()
+  expect(() => validateTeamPatch({ archived: 1 as never })).toThrow(/archived/)
+  expect(() => validateTeamPatch(null as never)).toThrow()
+})
+
+test('teamIds must be an array of integers', () => {
+  expect(() => validateTeamIds([])).not.toThrow()
+  expect(() => validateTeamIds([1, 2, 3])).not.toThrow()
+  expect(() => validateTeamIds([1.5])).toThrow(/integers/)
+  expect(() => validateTeamIds(['1'])).toThrow(/integers/)
+  expect(() => validateTeamIds('nope')).toThrow(/integers/)
+  expect(() => validateTeamIds(null)).toThrow(/integers/)
 })
