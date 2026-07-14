@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Agent, Membership, Team } from '../../core/types'
 import { api } from './api'
 import { Button } from '@/components/ui/button'
@@ -282,6 +282,7 @@ function AgentDrawer({
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const createdIdRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -293,6 +294,7 @@ function AgentDrawer({
     setConfirming(false)
     setBusy(false)
     setError(null)
+    createdIdRef.current = null
   }, [open, agent])
 
   // Active teams are selectable; archived teams the agent already belongs to
@@ -315,9 +317,14 @@ function AgentDrawer({
 
   const save = () =>
     run(async () => {
+      // If a previous Save created the agent but failed on memberships, retry
+      // must update that row, not create a duplicate.
       const saved = agent
         ? await api.updateAgent(agent.id, { name, model, systemPrompt, permissionLevel })
-        : await api.createAgent({ name, provider: 'claude', model, systemPrompt, permissionLevel })
+        : createdIdRef.current !== null
+          ? await api.updateAgent(createdIdRef.current, { name, model, systemPrompt, permissionLevel })
+          : await api.createAgent({ name, provider: 'claude', model, systemPrompt, permissionLevel })
+      if (!agent) createdIdRef.current = saved.id
       await api.setAgentTeams(saved.id, teamIds)
     })
 
