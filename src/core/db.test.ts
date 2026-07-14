@@ -254,6 +254,16 @@ test('teams round-trip; updateTeam patches name and archived as boolean', () => 
   expect(db.listTeams()[0].archived).toBe(true)
   expect(db.updateTeam(t.id, { archived: false }).archived).toBe(false)
   expect(db.updateTeam(t.id, { constructor: 'x' } as never).name).toBe('Platform')
+
+  // archive → restore must be lossless for memberships and ticket refs
+  const agent = db.createAgent('Dev', 'claude', 'claude-sonnet-5', 'p', 'read')
+  const proj = db.createProject('demo', '/repo/demo')
+  const ticket = db.createTicket(proj.id, 'T', 'd', { teamId: t.id })
+  db.setAgentTeams(agent.id, [t.id])
+  db.updateTeam(t.id, { archived: true })
+  db.updateTeam(t.id, { archived: false })
+  expect(db.listMemberships()).toEqual([{ agentId: agent.id, teamId: t.id }])
+  expect(db.getTicket(ticket.id).teamId).toBe(t.id)
 })
 
 test('setAgentTeams atomically replaces the membership set', () => {

@@ -554,7 +554,14 @@ export function AgentsPane({ onChanged }: { onChanged?: () => void }) {
 
   const teamMembers = (teamId: number) =>
     active.filter((a) => memberships.some((m) => m.teamId === teamId && m.agentId === a.id))
-  const unassigned = active.filter((a) => !memberships.some((m) => m.agentId === a.id))
+  // An agent whose only teams are archived must still appear (under "No team"),
+  // or it becomes uneditable — membership in an archived team doesn't count here.
+  const unassigned = active.filter(
+    (a) =>
+      !memberships.some(
+        (m) => m.agentId === a.id && activeTeams.some((t) => t.id === m.teamId),
+      ),
+  )
   const editingTeamIds = editing
     ? memberships.filter((m) => m.agentId === editing.id).map((m) => m.teamId)
     : []
