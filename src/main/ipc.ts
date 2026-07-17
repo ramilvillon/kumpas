@@ -114,6 +114,7 @@ export function registerIpc(
       validatePromote(input)
       const chat = db.getChat(chatId)
       if (chat.ticketId !== null) throw new Error('chat already has a spec ticket')
+      if (chat.archived) throw new Error('chat is archived — restore it first')
       const ticket = db.createTicket(chat.projectId, input.title.trim(), input.description.trim(), {
         kind: 'epic',
       })

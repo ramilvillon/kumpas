@@ -54,6 +54,14 @@ test('archived agent is refused before anything is stored', async () => {
   expect(db.listChatMessages(chat.id)).toEqual([])
 })
 
+test('archived chat is refused before anything is stored', async () => {
+  const { db, chat, deps } = setup()
+  db.updateChat(chat.id, { archived: true })
+  await expect(sendChatMessage(deps, chat.id, 'hi')).rejects.toThrow(/archived/)
+  await expect(retryChat(deps, chat.id)).rejects.toThrow(/archived/)
+  expect(db.listChatMessages(chat.id)).toEqual([])
+})
+
 test('provider without chat capability is refused', async () => {
   const { db, chat } = setup()
   const runOnly: AgentProvider = { run: async () => ({ resultText: '', tokensIn: 0, tokensOut: 0 }) }

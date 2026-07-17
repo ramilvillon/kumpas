@@ -431,7 +431,7 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
               <Button
                 variant="outline"
                 size="sm"
-                disabled={messages.length === 0}
+                disabled={messages.length === 0 || selected.archived}
                 onClick={() => setPromoteOpen(true)}
               >
                 Create spec ticket
@@ -471,17 +471,21 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={onComposerKeyDown}
               rows={3}
-              disabled={sending || (selectedAgent?.archived ?? false)}
+              disabled={sending || selected.archived || (selectedAgent?.archived ?? false)}
               className={`${inputCls} resize-none leading-relaxed disabled:opacity-50`}
               placeholder={
-                selectedAgent?.archived
-                  ? 'This agent is archived — the chat is read-only.'
-                  : 'Describe the user story… (⌘↵ to send)'
+                selected.archived
+                  ? 'This chat is archived — restore it to continue.'
+                  : selectedAgent?.archived
+                    ? 'This agent is archived — the chat is read-only.'
+                    : 'Describe the user story… (⌘↵ to send)'
               }
             />
             <Button
               onClick={send}
-              disabled={sending || !draft.trim() || (selectedAgent?.archived ?? false)}
+              disabled={
+                sending || !draft.trim() || selected.archived || (selectedAgent?.archived ?? false)
+              }
             >
               {sending ? '…' : 'Send'}
             </Button>

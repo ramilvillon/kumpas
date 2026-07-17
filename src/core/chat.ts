@@ -16,6 +16,9 @@ type ChatCtx = {
 // All refusals happen here, BEFORE any message is stored.
 function loadCtx(deps: ChatDeps, chatId: number): ChatCtx {
   const chat = deps.db.getChat(chatId)
+  if (chat.archived) {
+    throw new Error('This chat is archived — restore it to continue')
+  }
   const agent = deps.db.getAgent(chat.agentId)
   if (agent.archived) {
     throw new Error(`Agent '${agent.name}' is archived — this chat is read-only`)
