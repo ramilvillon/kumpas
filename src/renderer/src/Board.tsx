@@ -6,8 +6,9 @@ import { NewTaskModal } from './NewTaskModal'
 import { TicketDrawer } from './TicketDrawer'
 import { hue, initials } from './lib/visuals'
 import { AgentsPane } from './AgentsView'
+import { ChatsPane } from './ChatsView'
 
-export type MainTab = 'tasks' | 'agents'
+export type MainTab = 'tasks' | 'agents' | 'chats'
 
 /** Format ISO YYYY-MM-DD → "Jul 20" (UTC, no dep needed) */
 function fmtDate(iso: string): string {
@@ -103,6 +104,15 @@ export function Board({
           >
             Tasks
           </button>
+          <button
+            onClick={() => onSelectTab('chats')}
+            className={`font-display self-end pb-[9px] text-[12px] tracking-[0.08em] ${
+              mainTab === 'chats' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+            }`}
+            style={mainTab === 'chats' ? { boxShadow: 'inset 0 -2px 0 var(--primary)' } : undefined}
+          >
+            Chats
+          </button>
           {agentsOpen && (
             <span
               className={`font-display flex items-center gap-1 self-end pb-[9px] text-[12px] tracking-[0.08em] ${
@@ -135,6 +145,8 @@ export function Board({
 
       {mainTab === 'agents' ? (
         <AgentsPane onChanged={refresh} />
+      ) : mainTab === 'chats' ? (
+        <ChatsPane projectId={projectId} onChanged={refresh} />
       ) : (
         <div className="flex flex-1 items-start gap-3.5 overflow-x-auto">
           {columns.map((col) => {
@@ -264,6 +276,11 @@ function TicketCard({
         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-secondary text-[9.5px] font-semibold">
           {assignee ? initials(assignee.name) : '·'}
         </span>
+        {ticket.kind === 'epic' && (
+          <span className="font-display rounded-[5px] bg-primary/10 px-[7px] py-[3px] text-[8px] uppercase tracking-[0.06em] text-primary">
+            EPIC
+          </span>
+        )}
         {team && (
           <span className="font-display rounded-[5px] bg-primary/10 px-[7px] py-[3px] text-[8px] uppercase tracking-[0.06em] text-primary">
             {team.name}
