@@ -65,19 +65,25 @@ export function Board({
       .catch(console.error)
   }, [])
 
-  function dropTab(target: MainTab) {
+  // Sortable-lite: reorder live while hovering (no drop-target precision
+  // needed), persist once on drag end.
+  function hoverTab(target: MainTab) {
     const source = dragTabRef.current
-    dragTabRef.current = null
     if (!source || source === target) return
     setTabOrder((order) => {
-      // Target's index BEFORE removing the source: dropping right of the start
-      // lands after the target, dropping left lands before it. Using the
-      // post-removal index made left→right drags a no-op.
       const to = order.indexOf(target)
       const next = order.filter((t) => t !== source)
       next.splice(to, 0, source)
-      api.setSetting('tabs:order', JSON.stringify(next)).catch(console.error)
       return next
+    })
+  }
+
+  function endTabDrag() {
+    if (!dragTabRef.current) return
+    dragTabRef.current = null
+    setTabOrder((order) => {
+      api.setSetting('tabs:order', JSON.stringify(order)).catch(console.error)
+      return order
     })
   }
 
@@ -144,11 +150,17 @@ export function Board({
               <span
                 key={tab}
                 draggable
-                onDragStart={() => {
+                onDragStart={(e) => {
+                  // setData is required for the drag to initiate reliably
+                  // (Electron/Chromium on macOS refuses some drags without it)
+                  e.dataTransfer.setData('text/plain', tab)
+                  e.dataTransfer.effectAllowed = 'move'
                   dragTabRef.current = tab
                 }}
+                onDragEnter={() => hoverTab(tab)}
                 onDragOver={(e) => e.preventDefault()}
-                onDrop={() => dropTab(tab)}
+                onDrop={(e) => e.preventDefault()}
+                onDragEnd={endTabDrag}
                 className={`font-display flex cursor-grab items-center gap-1 self-end pb-[9px] text-[12px] tracking-[0.08em] ${
                   active ? 'text-foreground' : 'text-muted-foreground'
                 }`}
