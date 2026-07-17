@@ -1,4 +1,4 @@
-import type { Agent, Attachment, Column, Comment, Membership, Project, Run, Team, Ticket } from '../core/types.js'
+import type { Agent, Attachment, Chat, ChatMessage, Column, Comment, Membership, Project, Run, Team, Ticket } from '../core/types.js'
 
 export interface KumpasApi {
   listProjects(): Promise<Project[]>
@@ -33,6 +33,13 @@ export interface KumpasApi {
   updateTeam(teamId: number, patch: Record<string, unknown>): Promise<Team>
   listMemberships(): Promise<Membership[]>
   setAgentTeams(agentId: number, teamIds: number[]): Promise<void>
+  listChats(projectId: number): Promise<Chat[]>
+  createChat(input: { projectId: number; agentId: number; title: string }): Promise<Chat>
+  listChatMessages(chatId: number): Promise<ChatMessage[]>
+  sendChatMessage(chatId: number, body: string): Promise<ChatMessage>
+  retryChat(chatId: number): Promise<ChatMessage>
+  updateChat(chatId: number, patch: Record<string, unknown>): Promise<Chat>
+  promoteChat(chatId: number, input: { title: string; description: string }): Promise<Ticket>
   dispatch(ticketId: number, agentId: number): Promise<Run>
   getSetting(key: string): Promise<string | null>
   setSetting(key: string, value: string): Promise<void>
@@ -62,6 +69,13 @@ export const CHANNELS: Record<keyof KumpasApi, string> = {
   updateTeam: 'teams:update',
   listMemberships: 'teams:memberships',
   setAgentTeams: 'agents:setTeams',
+  listChats: 'chats:list',
+  createChat: 'chats:create',
+  listChatMessages: 'chats:messages',
+  sendChatMessage: 'chats:send',
+  retryChat: 'chats:retry',
+  updateChat: 'chats:update',
+  promoteChat: 'chats:promote',
   dispatch: 'dispatch:run',
   getSetting: 'settings:get',
   setSetting: 'settings:set',
