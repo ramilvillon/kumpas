@@ -125,7 +125,7 @@ export function registerIpc(
   ipcMain.handle(CHANNELS.dispatch, (_e, ticketId: number, agentId: number) =>
     dispatch({ db, providers }, ticketId, agentId),
   )
-  const RENDERER_SETTINGS = new Set(['theme', 'sidebar:collapsed'])
+  const RENDERER_SETTINGS = new Set(['theme', 'sidebar:collapsed', 'tabs:order'])
   ipcMain.handle(CHANNELS.getSetting, (_e, key: string) => {
     if (!RENDERER_SETTINGS.has(key)) {
       throw new Error(`setting '${key}' is not renderer-accessible`)

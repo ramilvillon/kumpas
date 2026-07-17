@@ -224,7 +224,7 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false)
   const [flyout, setFlyout] = useState(false)
   const flyoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [mainTab, setMainTab] = useState<MainTab>('tasks')
+  const [mainTab, setMainTab] = useState<MainTab>('chats')
   const [agentsOpen, setAgentsOpen] = useState(false)
   const { dark, toggle } = useTheme()
 
@@ -275,7 +275,7 @@ export default function App() {
 
   function closeAgents() {
     setAgentsOpen(false)
-    setMainTab('tasks')
+    setMainTab('chats')
   }
 
   const sidebarProps = {

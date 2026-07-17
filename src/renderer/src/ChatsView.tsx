@@ -380,7 +380,7 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
       {/* Chat list */}
       <div className="flex w-[230px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-border pr-3">
         <Button onClick={() => setNewOpen(true)} className="mb-2 inline-flex items-center gap-[7px]">
-          <span className="text-[15px] leading-none">＋</span> New chat
+          <span className="text-[15px] leading-none">＋</span> New feature
         </Button>
         {activeChats.map(chatListItem)}
         {activeChats.length === 0 && (
