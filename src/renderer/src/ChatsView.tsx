@@ -218,11 +218,13 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
-  const [sending, setSending] = useState(false)
+  // ponytail: one in-flight send at a time, app-wide; per-chat parallel sends when someone actually chats in two threads at once
+  const [sendingChatId, setSendingChatId] = useState<number | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
   const [newOpen, setNewOpen] = useState(false)
   const [promoteOpen, setPromoteOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const selectedIdRef = useRef<number | null>(null)
 
   const load = useCallback(() => {
     Promise.all([api.listChats(projectId), api.listAgents()])
@@ -239,6 +241,8 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
   }, [load])
 
   const selected = chats.find((c) => c.id === selectedId) ?? null
+  const sending = sendingChatId !== null
+  const thinkingHere = selected !== null && sendingChatId === selected.id
   // Display uses the FULL agent list (an archived agent's chat still shows its
   // name); only the new-chat picker filters.
   const selectedAgent = selected ? (agents.find((a) => a.id === selected.agentId) ?? null) : null
@@ -255,6 +259,7 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
   }, [])
 
   useEffect(() => {
+    selectedIdRef.current = selectedId
     setMessages([])
     setSendError(null)
     if (selectedId !== null) loadMessages(selectedId)
@@ -265,38 +270,40 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
   }, [messages, sending])
 
   async function send() {
-    if (!selected || !draft.trim() || sending) return
+    if (!selected || !draft.trim() || sendingChatId !== null) return
+    const chatId = selected.id
     const body = draft.trim()
     setDraft('')
-    setSending(true)
+    setSendingChatId(chatId)
     setSendError(null)
     // optimistic human bubble; real rows replace it on reload
     setMessages((m) => [
       ...m,
-      { id: -1, chatId: selected.id, author: 'human', body, createdAt: '' },
+      { id: -1, chatId, author: 'human', body, createdAt: '' },
     ])
     try {
-      await api.sendChatMessage(selected.id, body)
+      await api.sendChatMessage(chatId, body)
     } catch (e) {
-      setSendError(e instanceof Error ? e.message : String(e))
+      if (selectedIdRef.current === chatId) setSendError(e instanceof Error ? e.message : String(e))
     } finally {
-      setSending(false)
-      loadMessages(selected.id)
+      setSendingChatId(null)
+      if (selectedIdRef.current === chatId) loadMessages(chatId)
       load() // providerSessionId changed
     }
   }
 
   async function retry() {
-    if (!selected || sending) return
-    setSending(true)
+    if (!selected || sendingChatId !== null) return
+    const chatId = selected.id
+    setSendingChatId(chatId)
     setSendError(null)
     try {
-      await api.retryChat(selected.id)
+      await api.retryChat(chatId)
     } catch (e) {
-      setSendError(e instanceof Error ? e.message : String(e))
+      if (selectedIdRef.current === chatId) setSendError(e instanceof Error ? e.message : String(e))
     } finally {
-      setSending(false)
-      loadMessages(selected.id)
+      setSendingChatId(null)
+      if (selectedIdRef.current === chatId) loadMessages(chatId)
       load()
     }
   }
@@ -441,7 +448,7 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
             {messages.map((m) => (
               <Bubble key={m.id} msg={m} isHuman={m.author === 'human'} />
             ))}
-            {sending && (
+            {thinkingHere && (
               <div className="card-running max-w-[78%] rounded-[10px] border border-border bg-card px-3 py-2 text-[13px] text-muted-foreground">
                 Thinking…
               </div>
