@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import type {
-  ProviderName, Agent, Attachment, AttachmentKind, Column, ColumnRole, Comment,
-  CommentKind, Membership, Project, Run, RunStatus, Team, Ticket, TicketPriority,
+  ProviderName, Agent, Attachment, AttachmentKind, Chat, ChatMessage, Column, ColumnRole, Comment,
+  CommentKind, Membership, Project, Run, RunStatus, Team, Ticket, TicketKind, TicketPriority,
 } from './types.js'
 
 type TicketFields = {
@@ -22,6 +22,13 @@ type AgentFields = {
 }
 
 type TeamFields = { name?: string; archived?: boolean }
+
+type ChatFields = {
+  title?: string
+  archived?: boolean
+  providerSessionId?: string | null
+  ticketId?: number | null
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
@@ -108,6 +115,24 @@ export const MIGRATIONS: string[] = [
      PRIMARY KEY (agent_id, team_id)
    );
    ALTER TABLE tickets ADD COLUMN team_id INTEGER REFERENCES teams(id);`,
+  // v5 → v6: brainstorm chats + spec epics.
+  `CREATE TABLE IF NOT EXISTS chats (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     project_id INTEGER NOT NULL REFERENCES projects(id),
+     agent_id INTEGER NOT NULL REFERENCES agents(id),
+     title TEXT NOT NULL,
+     provider_session_id TEXT,
+     ticket_id INTEGER REFERENCES tickets(id),
+     archived INTEGER NOT NULL DEFAULT 0
+   );
+   CREATE TABLE IF NOT EXISTS chat_messages (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     chat_id INTEGER NOT NULL REFERENCES chats(id),
+     author TEXT NOT NULL,
+     body TEXT NOT NULL,
+     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+   );
+   ALTER TABLE tickets ADD COLUMN kind TEXT NOT NULL DEFAULT 'task';`,
 ]
 
 const DEFAULT_COLUMNS: { name: string; role: ColumnRole | null }[] = [
@@ -189,15 +214,15 @@ export class Db {
 
   createTicket(
     projectId: number, title: string, description: string,
-    opts: TicketFields & { columnId?: number } = {},
+    opts: TicketFields & { columnId?: number; kind?: TicketKind } = {},
   ): Ticket {
     const columnId = opts.columnId ?? this.getColumnByRole(projectId, 'todo').id
     const info = this.db.prepare(
       `INSERT INTO tickets
-         (project_id, title, description, column_id, priority, due_date, assignee_agent_id, team_id, tags)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (project_id, title, description, column_id, kind, priority, due_date, assignee_agent_id, team_id, tags)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
-      projectId, title, description, columnId,
+      projectId, title, description, columnId, opts.kind ?? 'task',
       opts.priority ?? null, opts.dueDate ?? null, opts.assigneeAgentId ?? null,
       opts.teamId ?? null, JSON.stringify(opts.tags ?? []),
     )
@@ -243,7 +268,7 @@ export class Db {
   getTicket(id: number): Ticket {
     const row = this.db.prepare(
       `SELECT id, project_id AS projectId, title, description, column_id AS columnId,
-              blocked, priority, due_date AS dueDate, assignee_agent_id AS assigneeAgentId, team_id AS teamId, tags
+              blocked, kind, priority, due_date AS dueDate, assignee_agent_id AS assigneeAgentId, team_id AS teamId, tags
        FROM tickets WHERE id = ?`,
     ).get(id)
     return this.mapTicket(row)
@@ -252,7 +277,7 @@ export class Db {
   listTickets(projectId: number): Ticket[] {
     const rows = this.db.prepare(
       `SELECT t.id, t.project_id AS projectId, t.title, t.description, t.column_id AS columnId,
-              t.blocked, t.priority, t.due_date AS dueDate,
+              t.blocked, t.kind, t.priority, t.due_date AS dueDate,
               t.assignee_agent_id AS assigneeAgentId, t.team_id AS teamId, t.tags,
               (SELECT COUNT(*) FROM comments c WHERE c.ticket_id = t.id) AS commentCount,
               (SELECT COUNT(*) FROM attachments a WHERE a.ticket_id = t.id) AS attachmentCount
@@ -393,6 +418,79 @@ export class Db {
       const ins = this.db.prepare('INSERT INTO agent_teams (agent_id, team_id) VALUES (?, ?)')
       for (const t of teamIds) ins.run(agentId, t)
     })()
+  }
+
+  private mapChat(row: any): Chat {
+    return { ...row, archived: !!row.archived }
+  }
+
+  createChat(projectId: number, agentId: number, title: string): Chat {
+    const info = this.db
+      .prepare('INSERT INTO chats (project_id, agent_id, title) VALUES (?, ?, ?)')
+      .run(projectId, agentId, title)
+    return this.getChat(Number(info.lastInsertRowid))
+  }
+
+  getChat(id: number): Chat {
+    const row = this.db
+      .prepare(
+        `SELECT id, project_id AS projectId, agent_id AS agentId, title,
+                provider_session_id AS providerSessionId, ticket_id AS ticketId, archived
+         FROM chats WHERE id = ?`,
+      )
+      .get(id)
+    return this.mapChat(row)
+  }
+
+  // Newest first: the active brainstorm is almost always the latest one.
+  listChats(projectId: number): Chat[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, project_id AS projectId, agent_id AS agentId, title,
+                provider_session_id AS providerSessionId, ticket_id AS ticketId, archived
+         FROM chats WHERE project_id = ? ORDER BY id DESC`,
+      )
+      .all(projectId)
+    return rows.map((r) => this.mapChat(r))
+  }
+
+  updateChat(id: number, patch: ChatFields): Chat {
+    const col: Record<string, string> = {
+      title: 'title', archived: 'archived',
+      providerSessionId: 'provider_session_id', ticketId: 'ticket_id',
+    }
+    const sets: string[] = []
+    const vals: unknown[] = []
+    for (const [k, v] of Object.entries(patch)) {
+      if (!Object.hasOwn(col, k)) continue
+      sets.push(`${col[k]} = ?`)
+      vals.push(k === 'archived' ? (v ? 1 : 0) : (v ?? null))
+    }
+    if (sets.length) {
+      this.db.prepare(`UPDATE chats SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id)
+    }
+    return this.getChat(id)
+  }
+
+  addChatMessage(chatId: number, author: string, body: string): ChatMessage {
+    const info = this.db
+      .prepare('INSERT INTO chat_messages (chat_id, author, body) VALUES (?, ?, ?)')
+      .run(chatId, author, body)
+    return this.db
+      .prepare(
+        `SELECT id, chat_id AS chatId, author, body, created_at AS createdAt
+         FROM chat_messages WHERE id = ?`,
+      )
+      .get(Number(info.lastInsertRowid)) as ChatMessage
+  }
+
+  listChatMessages(chatId: number): ChatMessage[] {
+    return this.db
+      .prepare(
+        `SELECT id, chat_id AS chatId, author, body, created_at AS createdAt
+         FROM chat_messages WHERE chat_id = ? ORDER BY id ASC`,
+      )
+      .all(chatId) as ChatMessage[]
   }
 
   createRun(r: {

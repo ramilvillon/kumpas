@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import type { Agent, AgentProvider, RunResult } from './types.js'
+import type { Agent, AgentProvider, ChatTurnResult, RunResult } from './types.js'
 import { parseClaudeResult } from './claudeParse.js'
 
 export type SpawnFn = (
@@ -64,5 +64,28 @@ export class ClaudeProvider implements AgentProvider {
       throw new Error(`claude exited with code ${code}: ${stderr || stdout}`)
     }
     return parseClaudeResult(stdout)
+  }
+
+  async chat(
+    message: string, repoPath: string, role: Agent, sessionId: string | null,
+  ): Promise<ChatTurnResult> {
+    const args = [
+      '-p', '-',
+      '--output-format', 'json',
+      '--model', role.model,
+      '--append-system-prompt', role.systemPrompt,
+    ]
+    if (sessionId) args.push('--resume', sessionId)
+    const mode = PERMISSION_MODE[role.permissionLevel]
+    if (mode) args.push('--permission-mode', mode)
+    const { stdout, stderr, code } = await this.spawn(this.binary, args, repoPath, message)
+    if (code !== 0) {
+      throw new Error(`claude exited with code ${code}: ${stderr || stdout}`)
+    }
+    const r = parseClaudeResult(stdout)
+    if (!r.sessionId) {
+      throw new Error('claude output has no session_id — cannot continue this chat')
+    }
+    return { replyText: r.resultText, sessionId: r.sessionId, tokensIn: r.tokensIn, tokensOut: r.tokensOut }
   }
 }

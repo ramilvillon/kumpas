@@ -8,8 +8,9 @@ import { copyIntoStore } from '../core/attachmentStore.js'
 import { CHANNELS } from '../shared/api.js'
 import {
   validateAgentCreate, validateAgentPatch, validateTeamCreate, validateTeamIds,
-  validateTeamPatch, type AgentCreateInput, type AgentPatch,
+  validateTeamPatch, validateChatBody, validateChatCreate, validateChatPatch, validatePromote, type AgentCreateInput, type AgentPatch,
 } from '../core/agentInput.js'
+import { retryChat, sendChatMessage } from '../core/chat.js'
 
 export function registerIpc(
   db: Db,
@@ -76,10 +77,55 @@ export function registerIpc(
     validateTeamIds(teamIds)
     db.setAgentTeams(agentId, teamIds)
   })
+  ipcMain.handle(CHANNELS.listChats, (_e, projectId: number) => db.listChats(projectId))
+  ipcMain.handle(
+    CHANNELS.createChat,
+    (_e, input: { projectId: number; agentId: number; title: string }) => {
+      validateChatCreate(input)
+      const agent = db.getAgent(input.agentId)
+      if (agent.archived) throw new Error(`Agent '${agent.name}' is archived`)
+      if (!providers[agent.provider]?.chat) {
+        throw new Error(`Provider '${agent.provider}' does not support chat in this build`)
+      }
+      return db.createChat(input.projectId, input.agentId, input.title.trim())
+    },
+  )
+  ipcMain.handle(CHANNELS.listChatMessages, (_e, chatId: number) => db.listChatMessages(chatId))
+  ipcMain.handle(CHANNELS.sendChatMessage, (_e, chatId: number, body: unknown) => {
+    validateChatBody(body)
+    return sendChatMessage({ db, providers }, chatId, body)
+  })
+  ipcMain.handle(CHANNELS.retryChat, (_e, chatId: number) => retryChat({ db, providers }, chatId))
+  ipcMain.handle(
+    CHANNELS.updateChat,
+    (_e, chatId: number, patch: { title?: string; archived?: boolean }) => {
+      validateChatPatch(patch)
+      // Renderer may only rename/archive. providerSessionId and ticketId are
+      // set by main itself — never accepted from the wire.
+      const p: { title?: string; archived?: boolean } = {}
+      if (typeof patch.title === 'string') p.title = patch.title.trim()
+      if (typeof patch.archived === 'boolean') p.archived = patch.archived
+      return db.updateChat(chatId, p)
+    },
+  )
+  ipcMain.handle(
+    CHANNELS.promoteChat,
+    (_e, chatId: number, input: { title: string; description: string }) => {
+      validatePromote(input)
+      const chat = db.getChat(chatId)
+      if (chat.ticketId !== null) throw new Error('chat already has a spec ticket')
+      if (chat.archived) throw new Error('chat is archived — restore it first')
+      const ticket = db.createTicket(chat.projectId, input.title.trim(), input.description.trim(), {
+        kind: 'epic',
+      })
+      db.updateChat(chatId, { ticketId: ticket.id })
+      return ticket
+    },
+  )
   ipcMain.handle(CHANNELS.dispatch, (_e, ticketId: number, agentId: number) =>
     dispatch({ db, providers }, ticketId, agentId),
   )
-  const RENDERER_SETTINGS = new Set(['theme', 'sidebar:collapsed'])
+  const RENDERER_SETTINGS = new Set(['theme', 'sidebar:collapsed', 'tabs:order'])
   ipcMain.handle(CHANNELS.getSetting, (_e, key: string) => {
     if (!RENDERER_SETTINGS.has(key)) {
       throw new Error(`setting '${key}' is not renderer-accessible`)

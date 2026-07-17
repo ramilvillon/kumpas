@@ -21,6 +21,8 @@ export interface Column {
 
 export type TicketPriority = 'low' | 'medium' | 'high'
 
+export type TicketKind = 'task' | 'epic'
+
 export interface Ticket {
   id: number
   projectId: number
@@ -28,6 +30,7 @@ export interface Ticket {
   description: string
   columnId: number
   blocked: number // 0 | 1
+  kind: TicketKind
   priority: TicketPriority | null
   dueDate: string | null // ISO YYYY-MM-DD
   assigneeAgentId: number | null
@@ -71,6 +74,27 @@ export interface Team {
 export interface Membership {
   agentId: number
   teamId: number
+}
+
+// A brainstorm conversation with one agent, scoped to a project. Context lives
+// in the provider's own session (providerSessionId); Kumpas stores messages
+// for display only. ticketId links the epic ticket this chat was promoted to.
+export interface Chat {
+  id: number
+  projectId: number
+  agentId: number
+  title: string
+  providerSessionId: string | null
+  ticketId: number | null
+  archived: boolean
+}
+
+export interface ChatMessage {
+  id: number
+  chatId: number
+  author: string // 'human' or the agent name
+  body: string
+  createdAt: string
 }
 
 export interface Run {
@@ -117,6 +141,18 @@ export interface RunResult {
   sessionId?: string
 }
 
+// One blocking chat turn. sessionId is the provider's own conversation handle
+// (claude --resume); Kumpas persists it on the chat and passes it back next turn.
+export interface ChatTurnResult {
+  replyText: string
+  sessionId: string
+  tokensIn: number
+  tokensOut: number
+}
+
 export interface AgentProvider {
   run(prompt: string, repoPath: string, role: Agent): Promise<RunResult>
+  // Optional per-provider capability: multi-turn brainstorm chat via the CLI's
+  // native session resume. Providers without it don't offer chat.
+  chat?(message: string, repoPath: string, role: Agent, sessionId: string | null): Promise<ChatTurnResult>
 }

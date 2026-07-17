@@ -64,3 +64,57 @@ test('a missing CLI binary surfaces a diagnostic error', async () => {
   const provider = new ClaudeProvider({ binary: 'kumpas-no-such-binary-xyz' })
   await expect(provider.run('x', process.cwd(), role)).rejects.toThrow(/ENOENT|no-such-binary/i)
 })
+
+const chatJson = JSON.stringify({
+  result: 'sounds good — what auth method?',
+  session_id: 'sess-42',
+  usage: { input_tokens: 11, output_tokens: 9 },
+})
+
+test('chat first turn: no --resume, message on stdin, returns reply + session id', async () => {
+  let seen: any
+  const provider = new ClaudeProvider({
+    spawn: async (cmd, args, cwd, input) => {
+      seen = { cmd, args, cwd, input }
+      return { stdout: chatJson, stderr: '', code: 0 }
+    },
+  })
+  const r = await provider.chat('let us build login', '/repo/demo', role, null)
+  expect(r).toEqual({
+    replyText: 'sounds good — what auth method?', sessionId: 'sess-42', tokensIn: 11, tokensOut: 9,
+  })
+  expect(seen.cwd).toBe('/repo/demo')
+  expect(seen.input).toBe('let us build login')
+  expect(seen.args).not.toContain('--resume')
+  // same permission mapping as run(): role has 'edit' → acceptEdits
+  expect(seen.args).toContain('--permission-mode')
+  expect(seen.args).toContain('acceptEdits')
+})
+
+test('chat later turn passes --resume with the stored session id', async () => {
+  let seen: string[] = []
+  const provider = new ClaudeProvider({
+    spawn: async (_cmd, args) => {
+      seen = args
+      return { stdout: chatJson, stderr: '', code: 0 }
+    },
+  })
+  await provider.chat('next question', '/repo', role, 'sess-41')
+  const i = seen.indexOf('--resume')
+  expect(i).toBeGreaterThan(-1)
+  expect(seen[i + 1]).toBe('sess-41')
+})
+
+test('chat throws when the output has no session_id (cannot continue the thread)', async () => {
+  const provider = new ClaudeProvider({
+    spawn: async () => ({ stdout: okJson, stderr: '', code: 0 }), // okJson has no session_id
+  })
+  await expect(provider.chat('x', '/repo', role, null)).rejects.toThrow(/session_id/)
+})
+
+test('chat throws when the CLI exits non-zero', async () => {
+  const provider = new ClaudeProvider({
+    spawn: async () => ({ stdout: '', stderr: 'chat boom', code: 1 }),
+  })
+  await expect(provider.chat('x', '/repo', role, null)).rejects.toThrow(/chat boom/)
+})

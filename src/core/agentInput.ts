@@ -59,3 +59,33 @@ export function validateTeamIds(teamIds: unknown): asserts teamIds is number[] {
   if (!Array.isArray(teamIds) || teamIds.some((t) => !Number.isInteger(t)))
     throw new Error('teamIds must be an array of integers')
 }
+
+export function validateChatCreate(input: { projectId: number; agentId: number; title: string }): void {
+  if (input === null || input === undefined || typeof input !== 'object')
+    throw new Error('invalid chat input')
+  if (!Number.isInteger(input.projectId)) throw new Error('projectId must be an integer')
+  if (!Number.isInteger(input.agentId)) throw new Error('agentId must be an integer')
+  if (typeof input.title !== 'string' || !input.title.trim())
+    throw new Error('chat title must not be empty')
+}
+
+export function validateChatPatch(patch: { title?: string; archived?: boolean }): void {
+  if (patch === null || typeof patch !== 'object') throw new Error('invalid chat input')
+  if ('title' in patch && (typeof patch.title !== 'string' || !patch.title.trim()))
+    throw new Error('chat title must not be empty')
+  if ('archived' in patch && typeof patch.archived !== 'boolean')
+    throw new Error('archived must be a boolean')
+}
+
+export function validateChatBody(body: unknown): asserts body is string {
+  if (typeof body !== 'string' || !body.trim()) throw new Error('message must not be empty')
+}
+
+export function validatePromote(input: { title: string; description: string }): void {
+  if (input === null || input === undefined || typeof input !== 'object')
+    throw new Error('invalid promote input')
+  if (typeof input.title !== 'string' || !input.title.trim())
+    throw new Error('ticket title must not be empty')
+  if (typeof input.description !== 'string' || !input.description.trim())
+    throw new Error('spec description must not be empty')
+}

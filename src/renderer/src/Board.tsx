@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Agent, Column, Run, Team, Ticket } from '../../core/types'
 import { api } from './api'
 import { Button } from '@/components/ui/button'
@@ -6,8 +6,12 @@ import { NewTaskModal } from './NewTaskModal'
 import { TicketDrawer } from './TicketDrawer'
 import { hue, initials } from './lib/visuals'
 import { AgentsPane } from './AgentsView'
+import { ChatsPane } from './ChatsView'
 
-export type MainTab = 'tasks' | 'agents'
+export type MainTab = 'tasks' | 'agents' | 'chats'
+
+const TAB_LABELS: Record<MainTab, string> = { chats: 'Chats', tasks: 'Tasks', agents: 'Agents' }
+const DEFAULT_TAB_ORDER: MainTab[] = ['chats', 'tasks', 'agents']
 
 /** Format ISO YYYY-MM-DD → "Jul 20" (UTC, no dep needed) */
 function fmtDate(iso: string): string {
@@ -37,6 +41,51 @@ export function Board({
   const [results, setResults] = useState<Record<number, string>>({})
   const [openTicketId, setOpenTicketId] = useState<number | null>(null)
   const [newTaskOpen, setNewTaskOpen] = useState(false)
+  const [tabOrder, setTabOrder] = useState<MainTab[]>(DEFAULT_TAB_ORDER)
+  const dragTabRef = useRef<MainTab | null>(null)
+
+  useEffect(() => {
+    api
+      .getSetting('tabs:order')
+      .then((v) => {
+        if (!v) return
+        try {
+          const parsed = JSON.parse(v)
+          if (
+            Array.isArray(parsed) &&
+            parsed.length === DEFAULT_TAB_ORDER.length &&
+            DEFAULT_TAB_ORDER.every((t) => parsed.includes(t))
+          ) {
+            setTabOrder(parsed as MainTab[])
+          }
+        } catch {
+          // bad stored value → keep default
+        }
+      })
+      .catch(console.error)
+  }, [])
+
+  // Sortable-lite: reorder live while hovering (no drop-target precision
+  // needed), persist once on drag end.
+  function hoverTab(target: MainTab) {
+    const source = dragTabRef.current
+    if (!source || source === target) return
+    setTabOrder((order) => {
+      const to = order.indexOf(target)
+      const next = order.filter((t) => t !== source)
+      next.splice(to, 0, source)
+      return next
+    })
+  }
+
+  function endTabDrag() {
+    if (!dragTabRef.current) return
+    dragTabRef.current = null
+    setTabOrder((order) => {
+      api.setSetting('tabs:order', JSON.stringify(order)).catch(console.error)
+      return order
+    })
+  }
 
   const refresh = useCallback(async () => {
     const [cols, tks, ags, tms] = await Promise.all([
@@ -94,34 +143,44 @@ export function Board({
       <div className="mb-[18px] flex items-center justify-between border-b border-border">
         <div className="flex items-center gap-[9px]">
           {sidebarToggle}
-          <button
-            onClick={() => onSelectTab('tasks')}
-            className={`font-display self-end pb-[9px] text-[12px] tracking-[0.08em] ${
-              mainTab === 'tasks' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
-            }`}
-            style={mainTab === 'tasks' ? { boxShadow: 'inset 0 -2px 0 var(--primary)' } : undefined}
-          >
-            Tasks
-          </button>
-          {agentsOpen && (
-            <span
-              className={`font-display flex items-center gap-1 self-end pb-[9px] text-[12px] tracking-[0.08em] ${
-                mainTab === 'agents' ? 'text-foreground' : 'text-muted-foreground'
-              }`}
-              style={mainTab === 'agents' ? { boxShadow: 'inset 0 -2px 0 var(--primary)' } : undefined}
-            >
-              <button onClick={() => onSelectTab('agents')} className="hover:text-foreground">
-                Agents
-              </button>
-              <button
-                onClick={onCloseAgents}
-                aria-label="Close agents tab"
-                className="rounded px-1 text-[11px] text-muted-foreground hover:bg-card hover:text-foreground"
+          {tabOrder.map((tab) => {
+            if (tab === 'agents' && !agentsOpen) return null
+            const active = mainTab === tab
+            return (
+              <span
+                key={tab}
+                draggable
+                onDragStart={(e) => {
+                  // setData is required for the drag to initiate reliably
+                  // (Electron/Chromium on macOS refuses some drags without it)
+                  e.dataTransfer.setData('text/plain', tab)
+                  e.dataTransfer.effectAllowed = 'move'
+                  dragTabRef.current = tab
+                }}
+                onDragEnter={() => hoverTab(tab)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => e.preventDefault()}
+                onDragEnd={endTabDrag}
+                className={`font-display flex cursor-grab items-center gap-1 self-end pb-[9px] text-[12px] tracking-[0.08em] ${
+                  active ? 'text-foreground' : 'text-muted-foreground'
+                }`}
+                style={active ? { boxShadow: 'inset 0 -2px 0 var(--primary)' } : undefined}
               >
-                ✕
-              </button>
-            </span>
-          )}
+                <button onClick={() => onSelectTab(tab)} className="hover:text-foreground">
+                  {TAB_LABELS[tab]}
+                </button>
+                {tab === 'agents' && (
+                  <button
+                    onClick={onCloseAgents}
+                    aria-label="Close agents tab"
+                    className="rounded px-1 text-[11px] text-muted-foreground hover:bg-card hover:text-foreground"
+                  >
+                    ✕
+                  </button>
+                )}
+              </span>
+            )
+          })}
         </div>
         {mainTab === 'tasks' && (
           <Button
@@ -135,6 +194,8 @@ export function Board({
 
       {mainTab === 'agents' ? (
         <AgentsPane onChanged={refresh} />
+      ) : mainTab === 'chats' ? (
+        <ChatsPane projectId={projectId} onChanged={refresh} />
       ) : (
         <div className="flex flex-1 items-start gap-3.5 overflow-x-auto">
           {columns.map((col) => {
@@ -264,6 +325,11 @@ function TicketCard({
         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-secondary text-[9.5px] font-semibold">
           {assignee ? initials(assignee.name) : '·'}
         </span>
+        {ticket.kind === 'epic' && (
+          <span className="font-display rounded-[5px] bg-primary/10 px-[7px] py-[3px] text-[8px] uppercase tracking-[0.06em] text-primary">
+            EPIC
+          </span>
+        )}
         {team && (
           <span className="font-display rounded-[5px] bg-primary/10 px-[7px] py-[3px] text-[8px] uppercase tracking-[0.06em] text-primary">
             {team.name}
