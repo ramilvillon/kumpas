@@ -141,6 +141,18 @@ export interface RunResult {
   sessionId?: string
 }
 
+// One blocking chat turn. sessionId is the provider's own conversation handle
+// (claude --resume); Kumpas persists it on the chat and passes it back next turn.
+export interface ChatTurnResult {
+  replyText: string
+  sessionId: string
+  tokensIn: number
+  tokensOut: number
+}
+
 export interface AgentProvider {
   run(prompt: string, repoPath: string, role: Agent): Promise<RunResult>
+  // Optional per-provider capability: multi-turn brainstorm chat via the CLI's
+  // native session resume. Providers without it don't offer chat.
+  chat?(message: string, repoPath: string, role: Agent, sessionId: string | null): Promise<ChatTurnResult>
 }
