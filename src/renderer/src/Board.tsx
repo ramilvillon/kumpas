@@ -70,8 +70,12 @@ export function Board({
     dragTabRef.current = null
     if (!source || source === target) return
     setTabOrder((order) => {
+      // Target's index BEFORE removing the source: dropping right of the start
+      // lands after the target, dropping left lands before it. Using the
+      // post-removal index made left→right drags a no-op.
+      const to = order.indexOf(target)
       const next = order.filter((t) => t !== source)
-      next.splice(next.indexOf(target), 0, source)
+      next.splice(to, 0, source)
       api.setSetting('tabs:order', JSON.stringify(next)).catch(console.error)
       return next
     })
