@@ -314,3 +314,84 @@ test('migration v5 upgrades an existing v4 db and preserves rows', () => {
   db.setAgentTeams(db.listAgents()[0].id, [team.id])
   expect(db.listMemberships()).toHaveLength(1)
 })
+
+test('migration v6 upgrades an existing v5 db and preserves rows', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kumpas-mig6-'))
+  const file = join(dir, 'v5.db')
+  // Build a genuine v5 database by replaying the first five released migrations.
+  const raw = new Database(file)
+  for (const sql of MIGRATIONS.slice(0, 5)) raw.exec(sql)
+  raw.pragma('user_version = 5')
+  raw.prepare(`INSERT INTO projects (name, repo_path) VALUES ('demo', '/repo/demo')`).run()
+  raw.prepare(
+    `INSERT INTO columns (project_id, name, position, role) VALUES (1, 'Backlog', 0, 'todo')`,
+  ).run()
+  raw.prepare(
+    `INSERT INTO tickets (project_id, title, description, column_id) VALUES (1, 'old', 'd', 1)`,
+  ).run()
+  // agent row so createChat below passes the FK check (Db opens with foreign_keys = ON)
+  raw.prepare(
+    `INSERT INTO agents (name, provider, model, system_prompt, permission_level)
+     VALUES ('Conductor', 'claude', 'claude-sonnet-5', 'p', 'read')`,
+  ).run()
+  raw.close()
+
+  const db = new Db(file) // opening migrates v5 → v6
+  const t = db.getTicket(1)
+  expect(t.title).toBe('old')
+  expect(t.kind).toBe('task') // pre-existing tickets default to task
+  const chat = db.createChat(1, 1, 'first chat') // chats table exists and works
+  expect(chat.id).toBeGreaterThan(0)
+})
+
+test('chat round-trip: create, list newest-first, patch fields, prototype keys ignored', () => {
+  const db = new Db(':memory:')
+  const p = db.createProject('demo', '/repo/demo')
+  const a = db.createAgent('Conductor', 'claude', 'claude-sonnet-5', 'brainstorm', 'read')
+  const c1 = db.createChat(p.id, a.id, 'Login feature')
+  expect(c1).toMatchObject({
+    projectId: p.id, agentId: a.id, title: 'Login feature',
+    providerSessionId: null, ticketId: null, archived: false,
+  })
+  const c2 = db.createChat(p.id, a.id, 'Signup flow')
+  expect(db.listChats(p.id).map((c) => c.id)).toEqual([c2.id, c1.id]) // newest first
+  // other project's list is empty
+  const p2 = db.createProject('other', '/repo/other')
+  expect(db.listChats(p2.id)).toEqual([])
+
+  expect(db.updateChat(c1.id, { title: 'Login v2' }).title).toBe('Login v2')
+  expect(db.updateChat(c1.id, { providerSessionId: 'sess-abc' }).providerSessionId).toBe('sess-abc')
+  expect(db.updateChat(c1.id, { archived: true }).archived).toBe(true)
+  expect(db.updateChat(c1.id, { archived: false }).archived).toBe(false)
+  const ticket = db.createTicket(p.id, 'Spec', 'body', { kind: 'epic' })
+  expect(db.updateChat(c1.id, { ticketId: ticket.id }).ticketId).toBe(ticket.id)
+  expect(db.updateChat(c1.id, { constructor: 'x' } as never).title).toBe('Login v2')
+})
+
+test('chat messages list in insertion order with authors', () => {
+  const db = new Db(':memory:')
+  const p = db.createProject('demo', '/repo/demo')
+  const a = db.createAgent('Conductor', 'claude', 'claude-sonnet-5', 'brainstorm', 'read')
+  const c = db.createChat(p.id, a.id, 'Login feature')
+  const m1 = db.addChatMessage(c.id, 'human', 'hello')
+  db.addChatMessage(c.id, 'Conductor', 'hi, what are we building?')
+  expect(m1.chatId).toBe(c.id)
+  expect(m1.createdAt).toBeTruthy()
+  const list = db.listChatMessages(c.id)
+  expect(list.map((m) => [m.author, m.body])).toEqual([
+    ['human', 'hello'],
+    ['Conductor', 'hi, what are we building?'],
+  ])
+})
+
+test('ticket kind: defaults to task, creates as epic, cannot be patched', () => {
+  const db = new Db(':memory:')
+  const p = db.createProject('demo', '/repo/demo')
+  const plain = db.createTicket(p.id, 'T', 'd')
+  expect(plain.kind).toBe('task')
+  const epic = db.createTicket(p.id, 'Spec: login', 'the spec', { kind: 'epic' })
+  expect(epic.kind).toBe('epic')
+  expect(db.listTickets(p.id).find((t) => t.id === epic.id)?.kind).toBe('epic')
+  // kind is immutable: updateTicketFields must ignore it
+  expect(db.updateTicketFields(epic.id, { kind: 'task' } as never).kind).toBe('epic')
+})
