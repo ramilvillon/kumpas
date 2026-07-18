@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Agent, Chat, ChatMessage } from '../../core/types'
+import type { Agent, Chat, ChatMessage, Membership, Team, Ticket } from '../../core/types'
 import { api } from './api'
 import { Button } from '@/components/ui/button'
 import {
@@ -195,6 +195,75 @@ function PromoteDialog({
   )
 }
 
+function PlanDialog({
+  open,
+  onOpenChange,
+  teams,
+  onPlan,
+}: {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  teams: Team[] // active teams with ≥1 active member — filtered by caller
+  onPlan: (teamId: number) => void
+}) {
+  const [teamId, setTeamId] = useState<string>('')
+
+  useEffect(() => {
+    if (!open) return
+    setTeamId(teams.length > 0 ? String(teams[0].id) : '')
+  }, [open]) // ponytail: reset only on open, like NewChatDialog
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Plan with team</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-3 px-5 pb-1">
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Team</span>
+            <Select value={teamId} onValueChange={setTeamId}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Pick a team" />
+              </SelectTrigger>
+              <SelectContent>
+                {teams.map((t) => (
+                  <SelectItem key={t.id} value={String(t.id)}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {teams.length === 0 && (
+              <span className="text-[10px] text-muted-foreground">
+                No teams with active members. Set one up in the Agents tab first.
+              </span>
+            )}
+          </label>
+          <span className="text-[10px] text-muted-foreground">
+            The chat agent becomes the team lead: it proposes a task breakdown here in the
+            chat. Review it, then click “Create tickets”.
+          </span>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!teamId}
+            onClick={() => {
+              onPlan(Number(teamId))
+              onOpenChange(false)
+            }}
+          >
+            Start planning
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function Bubble({ msg, isHuman }: { msg: ChatMessage; isHuman: boolean }) {
   return (
     <div className={`flex flex-col gap-1 ${isHuman ? 'items-end' : 'items-start'}`}>
@@ -223,14 +292,24 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
   const [sendError, setSendError] = useState<string | null>(null)
   const [newOpen, setNewOpen] = useState(false)
   const [promoteOpen, setPromoteOpen] = useState(false)
+  const [teams, setTeams] = useState<Team[]>([])
+  const [memberships, setMemberships] = useState<Membership[]>([])
+  const [tickets, setTickets] = useState<Ticket[]>([])
+  const [planOpen, setPlanOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const selectedIdRef = useRef<number | null>(null)
 
   const load = useCallback(() => {
-    Promise.all([api.listChats(projectId), api.listAgents()])
-      .then(([cs, as]) => {
+    Promise.all([
+      api.listChats(projectId), api.listAgents(), api.listTeams(),
+      api.listMemberships(), api.listTickets(projectId),
+    ])
+      .then(([cs, as, ts, ms, tks]) => {
         setChats(cs)
         setAgents(as)
+        setTeams(ts)
+        setMemberships(ms)
+        setTickets(tks)
         setSelectedId((cur) => cur ?? cs.find((c) => !c.archived)?.id ?? null)
       })
       .catch(console.error)
@@ -253,6 +332,20 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
   const archivedChats = chats.filter((c) => c.archived)
   const lastAgentDraft =
     [...messages].reverse().find((m) => m.author !== 'human')?.body ?? ''
+  const epic = selected?.ticketId != null
+    ? (tickets.find((t) => t.id === selected.ticketId) ?? null)
+    : null
+  const childCount = epic ? tickets.filter((t) => t.parentId === epic.id).length : 0
+  const canPlan =
+    selected !== null && !selected.archived && selectedAgent !== null &&
+    !selectedAgent.archived && CHAT_PROVIDERS.includes(selectedAgent.provider)
+  // teams offered in the plan dialog: active, with ≥1 active member
+  const activeMemberTeamIds = new Set(
+    memberships
+      .filter((m) => agents.some((a) => a.id === m.agentId && !a.archived))
+      .map((m) => m.teamId),
+  )
+  const plannableTeams = teams.filter((t) => !t.archived && activeMemberTeamIds.has(t.id))
 
   const loadMessages = useCallback((chatId: number) => {
     api.listChatMessages(chatId).then(setMessages).catch(console.error)
@@ -305,6 +398,40 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
       setSendingChatId(null)
       if (selectedIdRef.current === chatId) loadMessages(chatId)
       load()
+    }
+  }
+
+  async function plan(teamId: number) {
+    if (!selected || sendingChatId !== null) return
+    const chatId = selected.id
+    setSendingChatId(chatId)
+    setSendError(null)
+    try {
+      await api.planChat(chatId, teamId)
+    } catch (e) {
+      if (selectedIdRef.current === chatId) setSendError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSendingChatId(null)
+      if (selectedIdRef.current === chatId) loadMessages(chatId)
+      load()
+      onChanged?.() // epic.teamId changed on the board
+    }
+  }
+
+  async function createTickets() {
+    if (!selected || sendingChatId !== null) return
+    const chatId = selected.id
+    setSendingChatId(chatId)
+    setSendError(null)
+    try {
+      await api.createPlannedTickets(chatId)
+    } catch (e) {
+      if (selectedIdRef.current === chatId) setSendError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSendingChatId(null)
+      if (selectedIdRef.current === chatId) loadMessages(chatId)
+      load()
+      onChanged?.() // child tickets landed on the board
     }
   }
 
@@ -437,9 +564,28 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
                 Create spec ticket
               </Button>
             ) : (
-              <span className="font-display rounded-[5px] bg-primary/10 px-[7px] py-[3px] text-[8px] uppercase tracking-[0.06em] text-primary">
-                EPIC #{selected.ticketId}
-              </span>
+              <>
+                <span className="font-display rounded-[5px] bg-primary/10 px-[7px] py-[3px] text-[8px] uppercase tracking-[0.06em] text-primary">
+                  EPIC #{selected.ticketId}
+                </span>
+                {canPlan && childCount === 0 && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={sending}
+                      onClick={() => setPlanOpen(true)}
+                    >
+                      {epic?.teamId != null ? 'Re-plan…' : 'Plan with team…'}
+                    </Button>
+                    {epic?.teamId != null && (
+                      <Button size="sm" disabled={sending} onClick={createTickets}>
+                        Create tickets
+                      </Button>
+                    )}
+                  </>
+                )}
+              </>
             )}
           </div>
 
@@ -508,6 +654,12 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
           load()
           onChanged?.()
         }}
+      />
+      <PlanDialog
+        open={planOpen}
+        onOpenChange={setPlanOpen}
+        teams={plannableTeams}
+        onPlan={plan}
       />
     </div>
   )
