@@ -73,7 +73,9 @@ export async function createPlannedTickets(deps: PlanningDeps, chatId: number): 
   loadCtx(deps, chatId)
   const { epic } = loadEpic(db, chatId)
   if (epic.teamId === null) throw new Error('no team chosen — run "Plan with team…" first')
-  if (db.countChildren(epic.id) > 0) throw new Error('this epic already has tasks — one plan per epic')
+  // Deliberately NO children check: a partial plan (rejected assignees, failed
+  // turn) must stay recoverable — the session knows what exists and creates
+  // only the rest. One-plan-per-epic applies to startPlanning, not creation.
   if (creationInFlight) throw new Error('a ticket-creation run is already in progress')
   const members = activeMembers(db, epic.teamId)
   if (members.length === 0) throw new Error('the chosen team has no active members')

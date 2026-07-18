@@ -68,12 +68,20 @@ test('startPlanning sets epic.teamId and sends the roster prompt through the cha
   expect(db.listChatMessages(chat.id).map((m) => m.author)).toEqual(['human', 'Conductor'])
 })
 
-test('createPlannedTickets refuses without a team or with existing children', async () => {
-  const { db, project, epic, chat, deps } = setup()
+test('createPlannedTickets refuses without a team', async () => {
+  const { chat, deps } = setup()
   await expect(createPlannedTickets(deps, chat.id)).rejects.toThrow(/no team chosen/)
-  db.updateTicketFields(epic.id, { teamId: db.createTeam('T2').id })
-  db.createTicket(project.id, 'child', 'd', { parentId: epic.id })
-  await expect(createPlannedTickets(deps, chat.id)).rejects.toThrow(/already has tasks/)
+})
+
+// A partial plan (e.g. some assignees rejected) must not lock the human out of
+// the tool-armed turn — the session knows what exists and creates the rest.
+test('createPlannedTickets can re-run after a partial plan (children exist)', async () => {
+  const { db, project, epic, team, chat, deps } = setup()
+  db.updateTicketFields(epic.id, { teamId: team.id })
+  db.createTicket(project.id, 'partial child', 'd', { parentId: epic.id })
+  const reply = await createPlannedTickets(deps, chat.id)
+  expect(reply.body).toBe('proposed plan')
+  expect(db.listRuns(epic.id)).toHaveLength(1)
 })
 
 test('createPlannedTickets runs the tool turn: tickets created via MCP, run recorded, server closed', async () => {

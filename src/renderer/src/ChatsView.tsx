@@ -568,19 +568,21 @@ export function ChatsPane({ projectId, onChanged }: { projectId: number; onChang
                 <span className="font-display rounded-[5px] bg-primary/10 px-[7px] py-[3px] text-[8px] uppercase tracking-[0.06em] text-primary">
                   EPIC #{selected.ticketId}
                 </span>
-                {canPlan && childCount === 0 && (
+                {canPlan && (
                   <>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={sending}
-                      onClick={() => setPlanOpen(true)}
-                    >
-                      {epic?.teamId != null ? 'Re-plan…' : 'Plan with team…'}
-                    </Button>
+                    {childCount === 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={sending}
+                        onClick={() => setPlanOpen(true)}
+                      >
+                        {epic?.teamId != null ? 'Re-plan…' : 'Plan with team…'}
+                      </Button>
+                    )}
                     {epic?.teamId != null && (
                       <Button size="sm" disabled={sending} onClick={createTickets}>
-                        Create tickets
+                        {childCount > 0 ? 'Create remaining tickets' : 'Create tickets'}
                       </Button>
                     )}
                   </>
