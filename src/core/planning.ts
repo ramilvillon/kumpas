@@ -45,8 +45,16 @@ function planningPrompt(epic: Ticket, teamName: string, members: Agent[]): strin
   ].join('\n')
 }
 
-const CREATE_MESSAGE =
-  'The plan is approved. Create the tickets now: one create_task tool call per task, exactly as agreed above (incorporate any revisions from our conversation). Then reply with a one-line summary of what you created.'
+// Live roster rides along: the team may have changed since the proposal, and
+// the model must not stall asking for names the tool would accept anyway. The
+// tool-scope note stops it narrating plain (tool-less) turns as "outages".
+function createMessage(members: Agent[]): string {
+  return [
+    'The plan is approved. Create the tickets now: one create_task tool call per task, exactly as agreed above (incorporate any revisions from our conversation). Skip tasks whose tickets were already created. Then reply with a one-line summary of what you created.',
+    `Valid assignees right now: ${members.map((m) => m.name).join(', ')}.`,
+    'Note: the create_task tool is attached to this message only — it is intentionally unavailable in ordinary chat replies. That is not an outage; never ask the human to reconnect it.',
+  ].join('\n')
+}
 
 export async function startPlanning(
   deps: PlanningDeps, chatId: number, teamId: number,
@@ -90,7 +98,7 @@ export async function createPlannedTickets(deps: PlanningDeps, chatId: number): 
     members: members.map((m) => ({ id: m.id, name: m.name })),
   })
   try {
-    const turn = await sendChatTurn(deps, chatId, CREATE_MESSAGE, {
+    const turn = await sendChatTurn(deps, chatId, createMessage(members), {
       mcp: { url: server.url, token: server.token, toolName: server.toolName },
     })
     db.createRun({

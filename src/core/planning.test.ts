@@ -76,12 +76,16 @@ test('createPlannedTickets refuses without a team', async () => {
 // A partial plan (e.g. some assignees rejected) must not lock the human out of
 // the tool-armed turn — the session knows what exists and creates the rest.
 test('createPlannedTickets can re-run after a partial plan (children exist)', async () => {
-  const { db, project, epic, team, chat, deps } = setup()
+  const { db, project, epic, team, chat, calls, deps } = setup()
   db.updateTicketFields(epic.id, { teamId: team.id })
   db.createTicket(project.id, 'partial child', 'd', { parentId: epic.id })
   const reply = await createPlannedTickets(deps, chat.id)
   expect(reply.body).toBe('proposed plan')
   expect(db.listRuns(epic.id)).toHaveLength(1)
+  // the creation message carries the LIVE roster (it may have changed since
+  // the proposal) and tells the model the tool exists only on this turn
+  expect(calls[0].message).toContain('Valid assignees right now: Implementer')
+  expect(calls[0].message).toContain('attached to this message only')
 })
 
 test('createPlannedTickets runs the tool turn: tickets created via MCP, run recorded, server closed', async () => {
