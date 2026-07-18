@@ -87,3 +87,30 @@ test('retry re-sends the last human message; refuses after an agent reply', asyn
   // last message is now the agent's → nothing to retry
   await expect(retryChat(deps, chat.id)).rejects.toThrow(/nothing to retry/)
 })
+
+test('expired session: retries once with a fresh session and marks context reset', async () => {
+  const { db, chat, calls, deps } = setup(async (message, repoPath, _role, sessionId) => {
+    calls.push({ message, repoPath, sessionId })
+    if (sessionId !== null) {
+      throw new Error('claude exited with code 1: No conversation found with session ID: sess-old')
+    }
+    return { replyText: 'fresh start', sessionId: 'sess-new', tokensIn: 1, tokensOut: 1 }
+  })
+  db.updateChat(chat.id, { providerSessionId: 'sess-old' })
+  const reply = await sendChatMessage(deps, chat.id, 'hello again')
+  expect(calls.map((c) => c.sessionId)).toEqual(['sess-old', null]) // exactly one fallback retry
+  expect(reply.body).toMatch(/^_\(context reset/)
+  expect(reply.body).toContain('fresh start')
+  expect(db.getChat(chat.id).providerSessionId).toBe('sess-new')
+})
+
+test('non-session errors do not trigger the fallback', async () => {
+  let attempts = 0
+  const { db, chat, deps } = setup(async () => {
+    attempts++
+    throw new Error('CLI blew up')
+  })
+  db.updateChat(chat.id, { providerSessionId: 'sess-old' })
+  await expect(sendChatMessage(deps, chat.id, 'hi')).rejects.toThrow(/CLI blew up/)
+  expect(attempts).toBe(1)
+})
