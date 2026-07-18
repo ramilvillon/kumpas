@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { Db } from './db.js'
-import { retryChat, sendChatMessage } from './chat.js'
+import { retryChat, sendChatMessage, sendChatTurn } from './chat.js'
 import type { AgentProvider, ChatTurnResult } from './types.js'
 
 function setup(chatImpl?: AgentProvider['chat']) {
@@ -86,4 +86,46 @@ test('retry re-sends the last human message; refuses after an agent reply', asyn
   expect(db.listChatMessages(chat.id).map((m) => m.author)).toEqual(['human', 'Conductor'])
   // last message is now the agent's → nothing to retry
   await expect(retryChat(deps, chat.id)).rejects.toThrow(/nothing to retry/)
+})
+
+test('expired session: retries once with a fresh session and marks context reset', async () => {
+  const { db, chat, calls, deps } = setup(async (message, repoPath, _role, sessionId) => {
+    calls.push({ message, repoPath, sessionId })
+    if (sessionId !== null) {
+      throw new Error('claude exited with code 1: No conversation found with session ID: sess-old')
+    }
+    return { replyText: 'fresh start', sessionId: 'sess-new', tokensIn: 1, tokensOut: 1 }
+  })
+  db.updateChat(chat.id, { providerSessionId: 'sess-old' })
+  const reply = await sendChatMessage(deps, chat.id, 'hello again')
+  expect(calls.map((c) => c.sessionId)).toEqual(['sess-old', null]) // exactly one fallback retry
+  expect(reply.body).toMatch(/^_\(context reset/)
+  expect(reply.body).toContain('fresh start')
+  expect(db.getChat(chat.id).providerSessionId).toBe('sess-new')
+})
+
+test('expired-session fallback never fires on a tool-armed (mcp) turn', async () => {
+  let attempts = 0
+  const { db, chat, deps } = setup(async () => {
+    attempts++
+    throw new Error('claude exited with code 1: No conversation found with session ID: sess-old')
+  })
+  db.updateChat(chat.id, { providerSessionId: 'sess-old' })
+  await expect(
+    sendChatTurn(deps, chat.id, 'create now', {
+      mcp: { url: 'http://127.0.0.1:1/', token: 't', toolName: 'mcp__kumpas__create_task' },
+    }),
+  ).rejects.toThrow(/No conversation found/)
+  expect(attempts).toBe(1) // no silent fresh-session retry with a live tool
+})
+
+test('non-session errors do not trigger the fallback', async () => {
+  let attempts = 0
+  const { db, chat, deps } = setup(async () => {
+    attempts++
+    throw new Error('CLI blew up')
+  })
+  db.updateChat(chat.id, { providerSessionId: 'sess-old' })
+  await expect(sendChatMessage(deps, chat.id, 'hi')).rejects.toThrow(/CLI blew up/)
+  expect(attempts).toBe(1)
 })

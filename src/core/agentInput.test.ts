@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { validateAgentCreate, validateAgentPatch, validateTeamCreate, validateTeamIds, validateTeamPatch, validateChatCreate, validateChatPatch, validateChatBody, validatePromote, type AgentCreateInput } from './agentInput.js'
+import { validateAgentCreate, validateAgentPatch, validateTeamCreate, validateTeamIds, validateTeamPatch, validateChatCreate, validateChatPatch, validateChatBody, validatePromote, validateIntId, type AgentCreateInput } from './agentInput.js'
 
 const good: AgentCreateInput = {
   name: 'Dev', provider: 'claude', model: 'claude-sonnet-5',
@@ -96,4 +96,11 @@ test('validatePromote requires non-empty title and description', () => {
   expect(() => validatePromote({ title: ' ', description: 'body' })).toThrow(/title/)
   expect(() => validatePromote({ title: 'Spec', description: '' })).toThrow(/description/)
   expect(() => validatePromote(null as never)).toThrow(/invalid promote input/)
+})
+
+test('validateIntId accepts integers and rejects everything else', () => {
+  expect(() => validateIntId('chatId', 3)).not.toThrow()
+  expect(() => validateIntId('chatId', '3')).toThrow(/chatId must be an integer/)
+  expect(() => validateIntId('teamId', 1.5)).toThrow(/teamId must be an integer/)
+  expect(() => validateIntId('teamId', null)).toThrow(/teamId must be an integer/)
 })

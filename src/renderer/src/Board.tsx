@@ -218,6 +218,11 @@ export function Board({
                     ticket={t}
                     agents={agents}
                     teams={teams}
+                    parentTitle={
+                      t.parentId != null
+                        ? (tickets.find((p) => p.id === t.parentId)?.title ?? null)
+                        : null
+                    }
                     busy={busyTicketId === t.id}
                     result={results[t.id] ?? null}
                     onOpen={() => setOpenTicketId(t.id)}
@@ -260,6 +265,7 @@ function TicketCard({
   ticket,
   agents,
   teams,
+  parentTitle,
   busy,
   result,
   onOpen,
@@ -267,6 +273,7 @@ function TicketCard({
   ticket: Ticket
   agents: Agent[]
   teams: Team[]
+  parentTitle: string | null
   busy: boolean
   result: string | null
   onOpen: () => void
@@ -328,6 +335,11 @@ function TicketCard({
         {ticket.kind === 'epic' && (
           <span className="font-display rounded-[5px] bg-primary/10 px-[7px] py-[3px] text-[8px] uppercase tracking-[0.06em] text-primary">
             EPIC
+          </span>
+        )}
+        {parentTitle && (
+          <span className="font-display max-w-[120px] truncate rounded-[5px] bg-primary/10 px-[7px] py-[3px] text-[8px] uppercase tracking-[0.06em] text-primary">
+            ↳ {parentTitle}
           </span>
         )}
         {team && (

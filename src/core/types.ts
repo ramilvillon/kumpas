@@ -31,6 +31,7 @@ export interface Ticket {
   columnId: number
   blocked: number // 0 | 1
   kind: TicketKind
+  parentId: number | null // epic this task was planned under; null for top-level
   priority: TicketPriority | null
   dueDate: string | null // ISO YYYY-MM-DD
   assigneeAgentId: number | null
@@ -150,9 +151,15 @@ export interface ChatTurnResult {
   tokensOut: number
 }
 
+// Extra per-turn provider options. mcp attaches a Kumpas-hosted MCP endpoint
+// (the planning create_task tool) to exactly this turn.
+export interface ChatOpts {
+  mcp?: { url: string; token: string; toolName: string }
+}
+
 export interface AgentProvider {
   run(prompt: string, repoPath: string, role: Agent): Promise<RunResult>
   // Optional per-provider capability: multi-turn brainstorm chat via the CLI's
   // native session resume. Providers without it don't offer chat.
-  chat?(message: string, repoPath: string, role: Agent, sessionId: string | null): Promise<ChatTurnResult>
+  chat?(message: string, repoPath: string, role: Agent, sessionId: string | null, opts?: ChatOpts): Promise<ChatTurnResult>
 }

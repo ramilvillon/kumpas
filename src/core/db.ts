@@ -133,6 +133,8 @@ export const MIGRATIONS: string[] = [
      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
    );
    ALTER TABLE tickets ADD COLUMN kind TEXT NOT NULL DEFAULT 'task';`,
+  // v6 → v7: planning — child tasks link to their epic.
+  'ALTER TABLE tickets ADD COLUMN parent_id INTEGER REFERENCES tickets(id);',
 ]
 
 const DEFAULT_COLUMNS: { name: string; role: ColumnRole | null }[] = [
@@ -214,15 +216,15 @@ export class Db {
 
   createTicket(
     projectId: number, title: string, description: string,
-    opts: TicketFields & { columnId?: number; kind?: TicketKind } = {},
+    opts: TicketFields & { columnId?: number; kind?: TicketKind; parentId?: number } = {},
   ): Ticket {
     const columnId = opts.columnId ?? this.getColumnByRole(projectId, 'todo').id
     const info = this.db.prepare(
       `INSERT INTO tickets
-         (project_id, title, description, column_id, kind, priority, due_date, assignee_agent_id, team_id, tags)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (project_id, title, description, column_id, kind, parent_id, priority, due_date, assignee_agent_id, team_id, tags)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
-      projectId, title, description, columnId, opts.kind ?? 'task',
+      projectId, title, description, columnId, opts.kind ?? 'task', opts.parentId ?? null,
       opts.priority ?? null, opts.dueDate ?? null, opts.assigneeAgentId ?? null,
       opts.teamId ?? null, JSON.stringify(opts.tags ?? []),
     )
@@ -268,7 +270,7 @@ export class Db {
   getTicket(id: number): Ticket {
     const row = this.db.prepare(
       `SELECT id, project_id AS projectId, title, description, column_id AS columnId,
-              blocked, kind, priority, due_date AS dueDate, assignee_agent_id AS assigneeAgentId, team_id AS teamId, tags
+              blocked, kind, parent_id AS parentId, priority, due_date AS dueDate, assignee_agent_id AS assigneeAgentId, team_id AS teamId, tags
        FROM tickets WHERE id = ?`,
     ).get(id)
     return this.mapTicket(row)
@@ -277,13 +279,20 @@ export class Db {
   listTickets(projectId: number): Ticket[] {
     const rows = this.db.prepare(
       `SELECT t.id, t.project_id AS projectId, t.title, t.description, t.column_id AS columnId,
-              t.blocked, t.kind, t.priority, t.due_date AS dueDate,
+              t.blocked, t.kind, t.parent_id AS parentId, t.priority, t.due_date AS dueDate,
               t.assignee_agent_id AS assigneeAgentId, t.team_id AS teamId, t.tags,
               (SELECT COUNT(*) FROM comments c WHERE c.ticket_id = t.id) AS commentCount,
               (SELECT COUNT(*) FROM attachments a WHERE a.ticket_id = t.id) AS attachmentCount
        FROM tickets t WHERE t.project_id = ? ORDER BY t.id ASC`,
     ).all(projectId)
     return rows.map((r) => this.mapTicket(r))
+  }
+
+  countChildren(ticketId: number): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS n FROM tickets WHERE parent_id = ?')
+      .get(ticketId) as { n: number }
+    return row.n
   }
 
   setTicketColumn(id: number, columnId: number): void {
