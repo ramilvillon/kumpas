@@ -8,9 +8,10 @@ import { copyIntoStore } from '../core/attachmentStore.js'
 import { CHANNELS } from '../shared/api.js'
 import {
   validateAgentCreate, validateAgentPatch, validateTeamCreate, validateTeamIds,
-  validateTeamPatch, validateChatBody, validateChatCreate, validateChatPatch, validatePromote, type AgentCreateInput, type AgentPatch,
+  validateTeamPatch, validateChatBody, validateChatCreate, validateChatPatch, validatePromote, validateIntId, type AgentCreateInput, type AgentPatch,
 } from '../core/agentInput.js'
 import { retryChat, sendChatMessage } from '../core/chat.js'
+import { createPlannedTickets, startPlanning } from '../core/planning.js'
 
 export function registerIpc(
   db: Db,
@@ -39,9 +40,16 @@ export function registerIpc(
 
   ipcMain.handle(CHANNELS.listColumns, (_e, projectId: number) => db.listColumns(projectId))
   ipcMain.handle(CHANNELS.listTickets, (_e, projectId: number) => db.listTickets(projectId))
-  ipcMain.handle(CHANNELS.createTicket, (_e, projectId, title, description, opts) =>
-    db.createTicket(projectId, title, description, opts ?? {}),
-  )
+  ipcMain.handle(CHANNELS.createTicket, (_e, projectId, title, description, opts) => {
+    // Renderer may never set kind or parentId: epics come only from promote,
+    // children only from the planning MCP path. Copy a whitelist, like chats:update.
+    const o = (opts ?? {}) as Record<string, unknown>
+    const safe: Record<string, unknown> = {}
+    for (const k of ['priority', 'dueDate', 'assigneeAgentId', 'teamId', 'tags', 'columnId']) {
+      if (Object.hasOwn(o, k)) safe[k] = o[k]
+    }
+    return db.createTicket(projectId, title, description, safe as Parameters<Db['createTicket']>[3])
+  })
   ipcMain.handle(CHANNELS.updateTicket, (_e, ticketId, patch) => db.updateTicketFields(ticketId, patch))
   ipcMain.handle(CHANNELS.moveTicket, (_e, ticketId: number, columnId: number) =>
     db.setTicketColumn(ticketId, columnId),
@@ -122,6 +130,15 @@ export function registerIpc(
       return ticket
     },
   )
+  ipcMain.handle(CHANNELS.planChat, (_e, chatId: number, teamId: number) => {
+    validateIntId('chatId', chatId)
+    validateIntId('teamId', teamId)
+    return startPlanning({ db, providers }, chatId, teamId)
+  })
+  ipcMain.handle(CHANNELS.createPlannedTickets, (_e, chatId: number) => {
+    validateIntId('chatId', chatId)
+    return createPlannedTickets({ db, providers }, chatId)
+  })
   ipcMain.handle(CHANNELS.dispatch, (_e, ticketId: number, agentId: number) =>
     dispatch({ db, providers }, ticketId, agentId),
   )

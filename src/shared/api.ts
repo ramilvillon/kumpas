@@ -40,6 +40,8 @@ export interface KumpasApi {
   retryChat(chatId: number): Promise<ChatMessage>
   updateChat(chatId: number, patch: Record<string, unknown>): Promise<Chat>
   promoteChat(chatId: number, input: { title: string; description: string }): Promise<Ticket>
+  planChat(chatId: number, teamId: number): Promise<ChatMessage>
+  createPlannedTickets(chatId: number): Promise<ChatMessage>
   dispatch(ticketId: number, agentId: number): Promise<Run>
   getSetting(key: string): Promise<string | null>
   setSetting(key: string, value: string): Promise<void>
@@ -76,6 +78,8 @@ export const CHANNELS: Record<keyof KumpasApi, string> = {
   retryChat: 'chats:retry',
   updateChat: 'chats:update',
   promoteChat: 'chats:promote',
+  planChat: 'chats:plan',
+  createPlannedTickets: 'chats:createTickets',
   dispatch: 'dispatch:run',
   getSetting: 'settings:get',
   setSetting: 'settings:set',
