@@ -97,6 +97,17 @@ test('unknown method returns JSON-RPC method-not-found', async () => {
   expect(body.error.code).toBe(-32601)
 })
 
+test('non-object JSON body returns 400 instead of crashing', async () => {
+  for (const raw of ['null', '42', '"x"', '[]']) {
+    const res = await fetch(server.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${server.token}` },
+      body: raw,
+    })
+    expect(res.status).toBe(400)
+  }
+})
+
 test('close() shuts the server down', async () => {
   server.close()
   await expect(post({ jsonrpc: '2.0', id: 1, method: 'tools/list' })).rejects.toThrow()

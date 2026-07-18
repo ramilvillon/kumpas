@@ -56,7 +56,7 @@ export function startPlanningServer(db: Db, scope: PlanningScope): Promise<Plann
       return
     }
     let body = ''
-    req.on('data', (c) => { body += c })
+    req.on('data', (c) => { body += c; if (body.length > 1_000_000) req.destroy() })
     req.on('end', () => {
       let msg: any
       try {
@@ -64,6 +64,11 @@ export function startPlanningServer(db: Db, scope: PlanningScope): Promise<Plann
       } catch {
         res.writeHead(400, { 'content-type': 'application/json' })
           .end(rpcError(null, -32700, 'parse error'))
+        return
+      }
+      if (msg === null || typeof msg !== 'object' || Array.isArray(msg)) {
+        res.writeHead(400, { 'content-type': 'application/json' })
+          .end(rpcError(null, -32600, 'invalid request'))
         return
       }
       if (msg.id === undefined || msg.id === null) {

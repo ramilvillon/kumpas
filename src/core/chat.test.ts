@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { Db } from './db.js'
-import { retryChat, sendChatMessage } from './chat.js'
+import { retryChat, sendChatMessage, sendChatTurn } from './chat.js'
 import type { AgentProvider, ChatTurnResult } from './types.js'
 
 function setup(chatImpl?: AgentProvider['chat']) {
@@ -102,6 +102,21 @@ test('expired session: retries once with a fresh session and marks context reset
   expect(reply.body).toMatch(/^_\(context reset/)
   expect(reply.body).toContain('fresh start')
   expect(db.getChat(chat.id).providerSessionId).toBe('sess-new')
+})
+
+test('expired-session fallback never fires on a tool-armed (mcp) turn', async () => {
+  let attempts = 0
+  const { db, chat, deps } = setup(async () => {
+    attempts++
+    throw new Error('claude exited with code 1: No conversation found with session ID: sess-old')
+  })
+  db.updateChat(chat.id, { providerSessionId: 'sess-old' })
+  await expect(
+    sendChatTurn(deps, chat.id, 'create now', {
+      mcp: { url: 'http://127.0.0.1:1/', token: 't', toolName: 'mcp__kumpas__create_task' },
+    }),
+  ).rejects.toThrow(/No conversation found/)
+  expect(attempts).toBe(1) // no silent fresh-session retry with a live tool
 })
 
 test('non-session errors do not trigger the fallback', async () => {

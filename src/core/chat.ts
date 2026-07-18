@@ -51,7 +51,9 @@ async function runTurn(
     const msg = err instanceof Error ? err.message : String(err)
     // claude prunes sessions (~30 days). Rather than bricking the chat, retry
     // once on a fresh session and mark the reply so the human knows.
-    if (ctx.sessionId === null || !/no conversation found/i.test(msg)) throw err
+    // A tool-armed turn must never silently restart on a fresh session: the
+    // human's approval referenced the conversation that just vanished.
+    if (ctx.sessionId === null || opts?.mcp || !/no conversation found/i.test(msg)) throw err
     result = await ctx.providerChat(body, ctx.project.repoPath, ctx.agent, null, opts)
     result = {
       ...result,
