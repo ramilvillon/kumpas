@@ -89,3 +89,7 @@ export function validatePromote(input: { title: string; description: string }): 
   if (typeof input.description !== 'string' || !input.description.trim())
     throw new Error('spec description must not be empty')
 }
+
+export function validateIntId(name: string, v: unknown): void {
+  if (!Number.isInteger(v)) throw new Error(`${name} must be an integer`)
+}
