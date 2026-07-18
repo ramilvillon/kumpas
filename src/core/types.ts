@@ -151,9 +151,15 @@ export interface ChatTurnResult {
   tokensOut: number
 }
 
+// Extra per-turn provider options. mcp attaches a Kumpas-hosted MCP endpoint
+// (the planning create_task tool) to exactly this turn.
+export interface ChatOpts {
+  mcp?: { url: string; token: string; toolName: string }
+}
+
 export interface AgentProvider {
   run(prompt: string, repoPath: string, role: Agent): Promise<RunResult>
   // Optional per-provider capability: multi-turn brainstorm chat via the CLI's
   // native session resume. Providers without it don't offer chat.
-  chat?(message: string, repoPath: string, role: Agent, sessionId: string | null): Promise<ChatTurnResult>
+  chat?(message: string, repoPath: string, role: Agent, sessionId: string | null, opts?: ChatOpts): Promise<ChatTurnResult>
 }

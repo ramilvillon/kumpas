@@ -118,3 +118,38 @@ test('chat throws when the CLI exits non-zero', async () => {
   })
   await expect(provider.chat('x', '/repo', role, null)).rejects.toThrow(/chat boom/)
 })
+
+test('chat passes --mcp-config and --allowedTools when mcp opts are given', async () => {
+  let seen: string[] = []
+  const provider = new ClaudeProvider({
+    spawn: async (_cmd, args) => {
+      seen = args
+      return { stdout: chatJson, stderr: '', code: 0 }
+    },
+  })
+  await provider.chat('create them', '/repo', role, 'sess-41', {
+    mcp: { url: 'http://127.0.0.1:5555/', token: 'tok-1', toolName: 'mcp__kumpas__create_task' },
+  })
+  const i = seen.indexOf('--mcp-config')
+  expect(i).toBeGreaterThan(-1)
+  const cfg = JSON.parse(seen[i + 1])
+  expect(cfg.mcpServers.kumpas.type).toBe('http')
+  expect(cfg.mcpServers.kumpas.url).toBe('http://127.0.0.1:5555/')
+  expect(cfg.mcpServers.kumpas.headers.Authorization).toBe('Bearer tok-1')
+  const j = seen.indexOf('--allowedTools')
+  expect(seen[j + 1]).toBe('mcp__kumpas__create_task')
+  expect(seen).toContain('--resume') // still resumes the session
+})
+
+test('chat without mcp opts passes no MCP flags', async () => {
+  let seen: string[] = []
+  const provider = new ClaudeProvider({
+    spawn: async (_cmd, args) => {
+      seen = args
+      return { stdout: chatJson, stderr: '', code: 0 }
+    },
+  })
+  await provider.chat('plain turn', '/repo', role, null)
+  expect(seen).not.toContain('--mcp-config')
+  expect(seen).not.toContain('--allowedTools')
+})

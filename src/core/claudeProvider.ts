@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import type { Agent, AgentProvider, ChatTurnResult, RunResult } from './types.js'
+import type { Agent, AgentProvider, ChatOpts, ChatTurnResult, RunResult } from './types.js'
 import { parseClaudeResult } from './claudeParse.js'
 
 export type SpawnFn = (
@@ -67,7 +67,7 @@ export class ClaudeProvider implements AgentProvider {
   }
 
   async chat(
-    message: string, repoPath: string, role: Agent, sessionId: string | null,
+    message: string, repoPath: string, role: Agent, sessionId: string | null, opts?: ChatOpts,
   ): Promise<ChatTurnResult> {
     const args = [
       '-p', '-',
@@ -76,6 +76,24 @@ export class ClaudeProvider implements AgentProvider {
       '--append-system-prompt', role.systemPrompt,
     ]
     if (sessionId) args.push('--resume', sessionId)
+    if (opts?.mcp) {
+      // Server name 'kumpas' must match the mcp__kumpas__ prefix in toolName.
+      args.push(
+        '--mcp-config',
+        JSON.stringify({
+          mcpServers: {
+            kumpas: {
+              type: 'http',
+              url: opts.mcp.url,
+              headers: { Authorization: `Bearer ${opts.mcp.token}` },
+            },
+          },
+        }),
+        // Pre-approve ONLY this one tool so the headless run never blocks on a
+        // permission prompt. The permission-mode mapping stays unchanged.
+        '--allowedTools', opts.mcp.toolName,
+      )
+    }
     const mode = PERMISSION_MODE[role.permissionLevel]
     if (mode) args.push('--permission-mode', mode)
     const { stdout, stderr, code } = await this.spawn(this.binary, args, repoPath, message)
