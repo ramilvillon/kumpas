@@ -395,3 +395,38 @@ test('ticket kind: defaults to task, creates as epic, cannot be patched', () => 
   // kind is immutable: updateTicketFields must ignore it
   expect(db.updateTicketFields(epic.id, { kind: 'task' } as never).kind).toBe('epic')
 })
+
+test('migration v7 upgrades an existing v6 db and preserves rows', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kumpas-mig7-'))
+  const file = join(dir, 'v6.db')
+  // Build a genuine v6 database by replaying the first six released migrations.
+  const raw = new Database(file)
+  for (const sql of MIGRATIONS.slice(0, 6)) raw.exec(sql)
+  raw.pragma('user_version = 6')
+  raw.prepare(`INSERT INTO projects (name, repo_path) VALUES ('demo', '/repo/demo')`).run()
+  raw.prepare(
+    `INSERT INTO columns (project_id, name, position, role) VALUES (1, 'Backlog', 0, 'todo')`,
+  ).run()
+  raw.prepare(
+    `INSERT INTO tickets (project_id, title, description, column_id) VALUES (1, 'old epic', 'd', 1)`,
+  ).run()
+  raw.close()
+
+  const db = new Db(file) // opening migrates v6 → v7
+  expect(db.getTicket(1).parentId).toBeNull() // pre-existing tickets have no parent
+  const child = db.createTicket(1, 'child task', 'd', { parentId: 1 })
+  expect(child.parentId).toBe(1)
+  expect(db.listTickets(1).find((t) => t.id === child.id)?.parentId).toBe(1)
+  expect(db.countChildren(1)).toBe(1)
+  expect(db.countChildren(child.id)).toBe(0)
+})
+
+test('parent_id is immutable through updateTicketFields', () => {
+  const db = new Db(':memory:')
+  const p = db.createProject('demo', '/repo/demo')
+  const epic = db.createTicket(p.id, 'Epic', 'spec', { kind: 'epic' })
+  const child = db.createTicket(p.id, 'child', 'd', { parentId: epic.id })
+  const after = db.updateTicketFields(child.id, { parentId: null, title: 'renamed' } as never)
+  expect(after.title).toBe('renamed')
+  expect(after.parentId).toBe(epic.id) // patch key silently ignored, like kind
+})

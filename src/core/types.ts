@@ -31,6 +31,7 @@ export interface Ticket {
   columnId: number
   blocked: number // 0 | 1
   kind: TicketKind
+  parentId: number | null // epic this task was planned under; null for top-level
   priority: TicketPriority | null
   dueDate: string | null // ISO YYYY-MM-DD
   assigneeAgentId: number | null
