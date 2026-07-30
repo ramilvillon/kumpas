@@ -138,6 +138,20 @@ test('a worktree failure comments on the child and leaves it in todo', async () 
   expect(c.body).toContain('not a git repository')
 })
 
+test('a commit failure after a successful run leaves the child in review', async () => {
+  const { db, projectId, epicId, children } = setup(1)
+  const git = fakeGit()
+  git.commitAll = () => { throw new Error('worktree is locked') }
+  const res = await runBatch(deps(db, okProvider, git), epicId)
+  expect(res.dispatched).toBe(1)
+  const review = db.getColumnByRole(projectId, 'review').id
+  expect(db.getTicket(children[0].id).columnId).toBe(review)
+  const comments = db.listComments(children[0].id)
+  const commitComment = comments.find((c) => c.body.includes('worktree is locked'))
+  expect(commitComment).toBeDefined()
+  expect(commitComment?.author).toBe('kumpas')
+})
+
 test('runBatch refuses a ticket that is not an epic', async () => {
   const { db, children } = setup(1)
   await expect(runBatch(deps(db, okProvider), children[0].id)).rejects.toThrow(/epic/)

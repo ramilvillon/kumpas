@@ -62,7 +62,16 @@ async function runChild(deps: ExecutionDeps, git: ExecGit, repoPath: string, chi
   try {
     const wt = git.addTaskWorktree(repoPath, child.parentId as number, child.id)
     const run = await dispatch(deps, child.id, child.assigneeAgentId as number, wt)
-    if (run.status === 'success') git.commitAll(wt, commitMessage(child))
+    if (run.status === 'success') {
+      // A failed commit must not rewind a ticket dispatch already moved to
+      // review — the work is done, only the commit step failed.
+      try {
+        git.commitAll(wt, commitMessage(child))
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        db.addComment(child.id, SYSTEM_AUTHOR, `Could not commit this task's worktree: ${message}`, 'note')
+      }
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     db.addComment(child.id, SYSTEM_AUTHOR, `Batch could not run this task: ${message}`, 'note')
