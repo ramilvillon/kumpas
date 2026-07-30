@@ -16,6 +16,7 @@ import {
   ensureEpicBranch,
   hasTaskWorktree,
   isGitRepo,
+  mergeTaskBranch,
   removeTaskWorktree,
 } from './git.js'
 
@@ -116,4 +117,36 @@ test('commitAll commits every change and reports an empty commit as false', () =
   expect(execFileSync('git', ['log', '-1', '--pretty=%s'], { cwd: wt }).toString().trim())
     .toBe('kumpas: task 42')
   expect(commitAll(wt, 'kumpas: task 42 again')).toBe(false) // nothing left to commit
+})
+
+test('mergeTaskBranch merges a clean task branch into the epic branch', () => {
+  const repo = newRepo()
+  const epicWt = ensureEpicBranch(repo, 7)
+  const wt = addTaskWorktree(repo, 7, 42)
+  writeFileSync(join(wt, 'feature.txt'), 'shipped\n')
+  commitAll(wt, 'task 42')
+
+  expect(mergeTaskBranch(repo, 7, 42)).toEqual({ ok: true })
+  expect(readFileSync(join(epicWt, 'feature.txt'), 'utf8')).toBe('shipped\n')
+})
+
+test('mergeTaskBranch reports a conflict and leaves the epic branch clean', () => {
+  const repo = newRepo()
+  const epicWt = ensureEpicBranch(repo, 7)
+
+  // Both branch off the same epic tip and rewrite the same line — the second
+  // merge is guaranteed to conflict.
+  const first = addTaskWorktree(repo, 7, 42)
+  const second = addTaskWorktree(repo, 7, 43)
+  writeFileSync(join(first, 'a.txt'), 'from 42\n')
+  commitAll(first, 'task 42')
+  writeFileSync(join(second, 'a.txt'), 'from 43\n')
+  commitAll(second, 'task 43')
+
+  expect(mergeTaskBranch(repo, 7, 42)).toEqual({ ok: true })
+  expect(mergeTaskBranch(repo, 7, 43)).toEqual({ ok: false, conflict: true })
+  // aborted: no MERGE_HEAD left behind, working tree clean, 42's content intact
+  expect(existsSync(join(repo, '.git', 'worktrees', 'epic-7', 'MERGE_HEAD'))).toBe(false)
+  expect(execFileSync('git', ['status', '--porcelain'], { cwd: epicWt }).toString().trim()).toBe('')
+  expect(readFileSync(join(epicWt, 'a.txt'), 'utf8')).toBe('from 42\n')
 })

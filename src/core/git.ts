@@ -119,3 +119,15 @@ export function commitAll(worktreePath: string, message: string): boolean {
   git(worktreePath, ['add', '-A'])
   return gitOk(worktreePath, ['commit', '-q', '-m', message])
 }
+
+export type MergeResult = { ok: true } | { ok: false; conflict: true }
+
+// ponytail: every non-zero merge exit reads as a conflict — the caller's
+// response (BLOCKED + human resolves in the worktree) is the same either way.
+export function mergeTaskBranch(repoPath: string, epicId: number, taskId: number): MergeResult {
+  const cwd = ensureEpicBranch(repoPath, epicId)
+  const ok = gitOk(cwd, ['merge', '--no-ff', '-m', `merge ${taskBranch(taskId)}`, taskBranch(taskId)])
+  if (ok) return { ok: true }
+  gitOk(cwd, ['merge', '--abort']) // leave the integration branch clean
+  return { ok: false, conflict: true }
+}
