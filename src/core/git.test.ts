@@ -1,9 +1,23 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, mkdtempSync as mkdtemp2 } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  mkdtempSync as mkdtemp2,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
-import { captureDiff, isGitRepo } from './git.js'
+import {
+  addTaskWorktree,
+  captureDiff,
+  commitAll,
+  ensureEpicBranch,
+  hasTaskWorktree,
+  isGitRepo,
+  removeTaskWorktree,
+} from './git.js'
 
 function newRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), 'kumpas-'))
@@ -41,4 +55,65 @@ test('isGitRepo is true inside a repo, false outside', () => {
   expect(isGitRepo(repo)).toBe(true)
   const plain = mkdtemp2(join(tmpdir(), 'kumpas-plain-'))
   expect(isGitRepo(plain)).toBe(false)
+})
+
+test('ensureEpicBranch creates epic/{id} in its own worktree, idempotently', () => {
+  const repo = newRepo()
+  const wt = ensureEpicBranch(repo, 7)
+  expect(wt).toBe(join(repo, '.kumpas-worktrees', 'epic-7'))
+  expect(existsSync(join(wt, 'a.txt'))).toBe(true)
+  expect(execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: wt }).toString().trim())
+    .toBe('epic/7')
+  expect(ensureEpicBranch(repo, 7)).toBe(wt) // second call is a no-op
+})
+
+test('ensureEpicBranch keeps the worktrees dir out of the repo status', () => {
+  const repo = newRepo()
+  ensureEpicBranch(repo, 7)
+  const status = execFileSync('git', ['status', '--porcelain'], { cwd: repo }).toString()
+  expect(status).not.toContain('.kumpas-worktrees')
+  // recorded locally, not in the user's tracked .gitignore
+  expect(readFileSync(join(repo, '.git', 'info', 'exclude'), 'utf8')).toContain('.kumpas-worktrees/')
+  expect(existsSync(join(repo, '.gitignore'))).toBe(false)
+})
+
+test('addTaskWorktree branches task/{id} off the epic tip and is idempotent', () => {
+  const repo = newRepo()
+  const epicWt = ensureEpicBranch(repo, 7)
+  writeFileSync(join(epicWt, 'from-epic.txt'), 'epic work\n')
+  commitAll(epicWt, 'epic commit')
+
+  const wt = addTaskWorktree(repo, 7, 42)
+  expect(wt).toBe(join(repo, '.kumpas-worktrees', 'task-42'))
+  expect(existsSync(join(wt, 'from-epic.txt'))).toBe(true) // branched from the epic tip
+  expect(execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: wt }).toString().trim())
+    .toBe('task/42')
+  expect(hasTaskWorktree(repo, 42)).toBe(true)
+  expect(addTaskWorktree(repo, 7, 42)).toBe(wt) // reused, not recreated
+})
+
+test('removeTaskWorktree drops the checkout but keeps the branch', () => {
+  const repo = newRepo()
+  ensureEpicBranch(repo, 7)
+  const wt = addTaskWorktree(repo, 7, 42)
+  writeFileSync(join(wt, 'b.txt'), 'work\n')
+  commitAll(wt, 'task commit')
+
+  removeTaskWorktree(repo, 42)
+  expect(hasTaskWorktree(repo, 42)).toBe(false)
+  expect(existsSync(wt)).toBe(false)
+  expect(execFileSync('git', ['rev-parse', '--verify', 'task/42'], { cwd: repo }).toString().trim())
+    .toHaveLength(40)
+  removeTaskWorktree(repo, 42) // idempotent
+})
+
+test('commitAll commits every change and reports an empty commit as false', () => {
+  const repo = newRepo()
+  ensureEpicBranch(repo, 7)
+  const wt = addTaskWorktree(repo, 7, 42)
+  writeFileSync(join(wt, 'new.txt'), 'hello\n')
+  expect(commitAll(wt, 'kumpas: task 42')).toBe(true)
+  expect(execFileSync('git', ['log', '-1', '--pretty=%s'], { cwd: wt }).toString().trim())
+    .toBe('kumpas: task 42')
+  expect(commitAll(wt, 'kumpas: task 42 again')).toBe(false) // nothing left to commit
 })
