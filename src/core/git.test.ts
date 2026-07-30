@@ -16,6 +16,7 @@ import {
   ensureEpicBranch,
   hasTaskWorktree,
   isGitRepo,
+  isTaskWorktreeDirty,
   mergeTaskBranch,
   removeTaskWorktree,
 } from './git.js'
@@ -149,4 +150,17 @@ test('mergeTaskBranch reports a conflict and leaves the epic branch clean', () =
   expect(existsSync(join(repo, '.git', 'worktrees', 'epic-7', 'MERGE_HEAD'))).toBe(false)
   expect(execFileSync('git', ['status', '--porcelain'], { cwd: epicWt }).toString().trim()).toBe('')
   expect(readFileSync(join(epicWt, 'a.txt'), 'utf8')).toBe('from 42\n')
+})
+
+test('isTaskWorktreeDirty sees uncommitted work and nothing else', () => {
+  const repo = newRepo()
+  ensureEpicBranch(repo, 7)
+  expect(isTaskWorktreeDirty(repo, 42)).toBe(false) // no worktree = nothing to lose
+
+  const wt = addTaskWorktree(repo, 7, 42)
+  expect(isTaskWorktreeDirty(repo, 42)).toBe(false)
+  writeFileSync(join(wt, 'work.txt'), 'in progress\n')
+  expect(isTaskWorktreeDirty(repo, 42)).toBe(true)
+  commitAll(wt, 'task 42')
+  expect(isTaskWorktreeDirty(repo, 42)).toBe(false)
 })

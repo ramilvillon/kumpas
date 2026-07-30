@@ -131,3 +131,11 @@ export function mergeTaskBranch(repoPath: string, epicId: number, taskId: number
   gitOk(cwd, ['merge', '--abort']) // leave the integration branch clean
   return { ok: false, conflict: true }
 }
+
+// Approve force-removes the worktree, so anything uncommitted there is gone for
+// good; callers check this first. Ignored files (node_modules, build output) do
+// not show up in --porcelain, so ordinary agent debris doesn't block an approve.
+export function isTaskWorktreeDirty(repoPath: string, taskId: number): boolean {
+  if (!hasTaskWorktree(repoPath, taskId)) return false // nothing to lose
+  return git(taskWorktreePath(repoPath, taskId), ['status', '--porcelain']).trim() !== ''
+}

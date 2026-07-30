@@ -14,6 +14,7 @@ export function fakeGit(log: string[] = []): ExecGit {
     removeTaskWorktree: (_r, id) => { log.push(`rmWt:${id}`) },
     mergeTaskBranch: (_r, _e, id) => { log.push(`merge:${id}`); return { ok: true } },
     commitAll: (path, _m) => { log.push(`commit:${path}`); return true },
+    isTaskWorktreeDirty: () => false,
   }
 }
 
@@ -194,7 +195,7 @@ test('approve with auto-merge on: merges, moves to done, removes the worktree', 
   await toReview(db, epicId, git)
 
   const res = await execApprove(deps(db, okProvider, git), children[0].id)
-  expect(res).toEqual({ merged: true, conflict: false })
+  expect(res).toEqual({ merged: true, conflict: false, dirty: false })
   expect(db.getTicket(children[0].id).columnId).toBe(db.getColumnByRole(projectId, 'done').id)
   expect(log).toContain(`merge:${children[0].id}`)
   expect(log).toContain(`rmWt:${children[0].id}`)
@@ -208,7 +209,7 @@ test('approve with auto-merge off: closes the ticket without merging', async () 
   db.setSetting('exec:autoMerge', '0')
 
   const res = await execApprove(deps(db, okProvider, git), children[0].id)
-  expect(res).toEqual({ merged: false, conflict: false })
+  expect(res).toEqual({ merged: false, conflict: false, dirty: false })
   expect(db.getTicket(children[0].id).columnId).toBe(db.getColumnByRole(projectId, 'done').id)
   expect(log).not.toContain(`merge:${children[0].id}`)
   expect(log).toContain(`rmWt:${children[0].id}`)
@@ -222,7 +223,7 @@ test('approve on a conflict blocks the ticket in review and keeps the worktree',
   git.mergeTaskBranch = () => ({ ok: false, conflict: true })
 
   const res = await execApprove(deps(db, okProvider, git), children[0].id)
-  expect(res).toEqual({ merged: false, conflict: true })
+  expect(res).toEqual({ merged: false, conflict: true, dirty: false })
   const t = db.getTicket(children[0].id)
   expect(t.blocked).toBe(1)
   expect(t.columnId).toBe(db.getColumnByRole(projectId, 'review').id)
@@ -230,6 +231,25 @@ test('approve on a conflict blocks the ticket in review and keeps the worktree',
   const last = db.listComments(children[0].id).at(-1)!
   expect(last.kind).toBe('question')
   expect(last.author).toBe('kumpas')
+})
+
+test('approve refuses a task whose worktree still holds uncommitted work', async () => {
+  const { db, projectId, epicId, children } = setup(1)
+  const log: string[] = []
+  const git = fakeGit(log)
+  await toReview(db, epicId, git)
+  git.isTaskWorktreeDirty = () => true
+
+  const res = await execApprove(deps(db, okProvider, git), children[0].id)
+  expect(res).toEqual({ merged: false, conflict: false, dirty: true })
+  // nothing happened: not merged, worktree kept, ticket still in review
+  expect(log).not.toContain(`merge:${children[0].id}`)
+  expect(log).not.toContain(`rmWt:${children[0].id}`)
+  expect(db.getTicket(children[0].id).columnId).toBe(db.getColumnByRole(projectId, 'review').id)
+  const last = db.listComments(children[0].id).at(-1)!
+  expect(last.author).toBe('kumpas')
+  expect(last.kind).toBe('question')
+  expect(last.body).toContain('uncommitted')
 })
 
 test('approve falls back to review when no column carries the done role', async () => {

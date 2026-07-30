@@ -2,8 +2,8 @@ import type { Db } from './db.js'
 import type { Run, Ticket } from './types.js'
 import { dispatch, type DispatchDeps } from './dispatch.js'
 import {
-  addTaskWorktree, commitAll, ensureEpicBranch, mergeTaskBranch, removeTaskWorktree,
-  type MergeResult,
+  addTaskWorktree, commitAll, ensureEpicBranch, isTaskWorktreeDirty, mergeTaskBranch,
+  removeTaskWorktree, type MergeResult,
 } from './git.js'
 
 // The git seam exists so the orchestrator tests don't need a real repo; the
@@ -14,10 +14,12 @@ export interface ExecGit {
   removeTaskWorktree(repoPath: string, taskId: number): void
   mergeTaskBranch(repoPath: string, epicId: number, taskId: number): MergeResult
   commitAll(worktreePath: string, message: string): boolean
+  isTaskWorktreeDirty(repoPath: string, taskId: number): boolean
 }
 
 const realGit: ExecGit = {
   ensureEpicBranch, addTaskWorktree, removeTaskWorktree, mergeTaskBranch, commitAll,
+  isTaskWorktreeDirty,
 }
 
 export interface ExecutionDeps extends DispatchDeps {
@@ -133,9 +135,13 @@ function moveToDone(db: Db, ticket: Ticket): void {
   )
 }
 
+// ponytail: no in-flight guard — this function's body has no `await`, so it
+// runs atomically with respect to the event loop and a second concurrent call
+// always finds the ticket already out of review, refused by the check above.
+// An `await` added ahead of that check would break this guarantee.
 export async function execApprove(
   deps: ExecutionDeps, ticketId: number,
-): Promise<{ merged: boolean; conflict: boolean }> {
+): Promise<{ merged: boolean; conflict: boolean; dirty: boolean }> {
   const { db } = deps
   const git = deps.git ?? realGit
   const ticket = db.getTicket(ticketId)
@@ -144,6 +150,19 @@ export async function execApprove(
     throw new Error('only a ticket in review can be approved')
   }
   const project = db.getProject(ticket.projectId)
+
+  // A task whose post-run commit failed sits in review looking exactly like a
+  // clean one. Approving it would merge nothing and then force-remove the
+  // worktree, destroying the work. Refuse, and say what to do about it.
+  if (git.isTaskWorktreeDirty(project.repoPath, ticketId)) {
+    db.addComment(
+      ticketId, SYSTEM_AUTHOR,
+      `Approve stopped: task/${ticketId}'s worktree has uncommitted changes, and ` +
+        `approving would delete them. Commit or discard them, then approve again.`, 'question',
+    )
+    return { merged: false, conflict: false, dirty: true }
+  }
+
   const merging = autoMerge(db)
 
   if (merging) {
@@ -155,7 +174,7 @@ export async function execApprove(
           `Resolve it in the worktree, then reply here to retry the merge.`, 'question',
       )
       db.setTicketBlocked(ticketId, true) // stays in review; worktree kept
-      return { merged: false, conflict: true }
+      return { merged: false, conflict: true, dirty: false }
     }
     db.addComment(
       ticketId, SYSTEM_AUTHOR, `Merged task/${ticketId} into epic/${ticket.parentId}.`, 'note',
@@ -165,7 +184,7 @@ export async function execApprove(
   git.removeTaskWorktree(project.repoPath, ticketId)
   db.setTicketBlocked(ticketId, false)
   moveToDone(db, ticket)
-  return { merged: merging, conflict: false }
+  return { merged: merging, conflict: false, dirty: false }
 }
 
 // Called from the addComment IPC handler on every human comment; returns null
