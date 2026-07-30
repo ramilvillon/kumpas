@@ -1,6 +1,10 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import Database from 'better-sqlite3'
 import { expect, test } from 'vitest'
-import { Db } from './db.js'
-import { runBatch, type ExecGit } from './execution.js'
+import { Db, MIGRATIONS } from './db.js'
+import { execApprove, runBatch, type ExecGit } from './execution.js'
 import type { AgentProvider } from './types.js'
 
 export function fakeGit(log: string[] = []): ExecGit {
@@ -177,4 +181,98 @@ test('a batch that fails to start leaves no ticket touched', async () => {
   await expect(runBatch(deps(db, okProvider, git), epicId)).rejects.toThrow(/not a git repository/)
   const todo = db.getColumnByRole(projectId, 'todo').id
   for (const c of children) expect(db.getTicket(c.id).columnId).toBe(todo)
+})
+
+async function toReview(db: Db, epicId: number, git: ExecGit = fakeGit()) {
+  await runBatch(deps(db, okProvider, git), epicId)
+}
+
+test('approve with auto-merge on: merges, moves to done, removes the worktree', async () => {
+  const { db, projectId, epicId, children } = setup(1)
+  const log: string[] = []
+  const git = fakeGit(log)
+  await toReview(db, epicId, git)
+
+  const res = await execApprove(deps(db, okProvider, git), children[0].id)
+  expect(res).toEqual({ merged: true, conflict: false })
+  expect(db.getTicket(children[0].id).columnId).toBe(db.getColumnByRole(projectId, 'done').id)
+  expect(log).toContain(`merge:${children[0].id}`)
+  expect(log).toContain(`rmWt:${children[0].id}`)
+})
+
+test('approve with auto-merge off: closes the ticket without merging', async () => {
+  const { db, projectId, epicId, children } = setup(1)
+  const log: string[] = []
+  const git = fakeGit(log)
+  await toReview(db, epicId, git)
+  db.setSetting('exec:autoMerge', '0')
+
+  const res = await execApprove(deps(db, okProvider, git), children[0].id)
+  expect(res).toEqual({ merged: false, conflict: false })
+  expect(db.getTicket(children[0].id).columnId).toBe(db.getColumnByRole(projectId, 'done').id)
+  expect(log).not.toContain(`merge:${children[0].id}`)
+  expect(log).toContain(`rmWt:${children[0].id}`)
+})
+
+test('approve on a conflict blocks the ticket in review and keeps the worktree', async () => {
+  const { db, projectId, epicId, children } = setup(1)
+  const log: string[] = []
+  const git = fakeGit(log)
+  await toReview(db, epicId, git)
+  git.mergeTaskBranch = () => ({ ok: false, conflict: true })
+
+  const res = await execApprove(deps(db, okProvider, git), children[0].id)
+  expect(res).toEqual({ merged: false, conflict: true })
+  const t = db.getTicket(children[0].id)
+  expect(t.blocked).toBe(1)
+  expect(t.columnId).toBe(db.getColumnByRole(projectId, 'review').id)
+  expect(log).not.toContain(`rmWt:${children[0].id}`)
+  const last = db.listComments(children[0].id).at(-1)!
+  expect(last.kind).toBe('question')
+  expect(last.author).toBe('kumpas')
+})
+
+test('approve falls back to review when no column carries the done role', async () => {
+  // A project that renamed its Done column before v8 has no done-role column.
+  // Build a genuine v7 db whose last column is named 'Finished', then open it:
+  // the v8 name match does not claim it.
+  const file = join(mkdtempSync(join(tmpdir(), 'kumpas-nodone-')), 'v7.db')
+  const raw = new Database(file)
+  for (const sql of MIGRATIONS.slice(0, 7)) raw.exec(sql)
+  raw.pragma('user_version = 7')
+  raw.prepare(`INSERT INTO projects (name, repo_path) VALUES ('demo', '/repo/demo')`).run()
+  const cols: [string, string | null][] = [
+    ['Backlog', 'todo'], ['In Progress', 'in_progress'], ['Review', 'review'], ['Finished', null],
+  ]
+  cols.forEach(([name, role], i) =>
+    raw.prepare('INSERT INTO columns (project_id, name, position, role) VALUES (1, ?, ?, ?)')
+      .run(name, i, role),
+  )
+  raw.close()
+
+  const db = new Db(file)
+  const epic = db.createTicket(1, 'Epic', 'spec', { kind: 'epic' })
+  const agent = db.createAgent('Dev', 'claude', 'claude-sonnet-5', 'sp', 'edit')
+  const child = db.createTicket(1, 'task', 'do it', {
+    parentId: epic.id, assigneeAgentId: agent.id,
+  })
+  const git = fakeGit()
+  await runBatch(deps(db, okProvider, git), epic.id)
+
+  const res = await execApprove(deps(db, okProvider, git), child.id)
+  expect(res.conflict).toBe(false)
+  expect(db.getTicket(child.id).columnId).toBe(db.getColumnByRole(1, 'review').id)
+  expect(db.listComments(child.id).at(-1)!.body).toContain('done')
+})
+
+test('approve refuses a ticket that is not in review', async () => {
+  const { db, children } = setup(1)
+  await expect(execApprove(deps(db, okProvider), children[0].id)).rejects.toThrow(/review/)
+})
+
+test('approve refuses a ticket with no parent epic', async () => {
+  const { db, projectId, agentId } = setup(1)
+  const loose = db.createTicket(projectId, 'loose', 'x', { assigneeAgentId: agentId })
+  db.setTicketColumn(loose.id, db.getColumnByRole(projectId, 'review').id)
+  await expect(execApprove(deps(db, okProvider), loose.id)).rejects.toThrow(/child task/)
 })

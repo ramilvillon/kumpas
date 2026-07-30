@@ -117,3 +117,53 @@ export async function runBatch(
   }
   return { dispatched }
 }
+
+// ponytail: migration v8 name-matches "Done", so a project that renamed the
+// column has no done-role column. Approve then records the outcome and leaves
+// the ticket in review rather than inventing a column.
+function moveToDone(db: Db, ticket: Ticket): void {
+  const done = db.listColumns(ticket.projectId).find((c) => c.role === 'done')
+  if (done) {
+    db.setTicketColumn(ticket.id, done.id)
+    return
+  }
+  db.addComment(
+    ticket.id, SYSTEM_AUTHOR,
+    'Approved, but no column carries the "done" role — move this ticket yourself.', 'note',
+  )
+}
+
+export async function execApprove(
+  deps: ExecutionDeps, ticketId: number,
+): Promise<{ merged: boolean; conflict: boolean }> {
+  const { db } = deps
+  const git = deps.git ?? realGit
+  const ticket = db.getTicket(ticketId)
+  if (ticket.parentId === null) throw new Error('approve is for a planned child task')
+  if (ticket.columnId !== db.getColumnByRole(ticket.projectId, 'review').id) {
+    throw new Error('only a ticket in review can be approved')
+  }
+  const project = db.getProject(ticket.projectId)
+  const merging = autoMerge(db)
+
+  if (merging) {
+    const res = git.mergeTaskBranch(project.repoPath, ticket.parentId, ticketId)
+    if (!res.ok) {
+      db.addComment(
+        ticketId, SYSTEM_AUTHOR,
+        `Merging task/${ticketId} into epic/${ticket.parentId} hit a conflict. ` +
+          `Resolve it in the worktree, then reply here to retry the merge.`, 'question',
+      )
+      db.setTicketBlocked(ticketId, true) // stays in review; worktree kept
+      return { merged: false, conflict: true }
+    }
+    db.addComment(
+      ticketId, SYSTEM_AUTHOR, `Merged task/${ticketId} into epic/${ticket.parentId}.`, 'note',
+    )
+  }
+
+  git.removeTaskWorktree(project.repoPath, ticketId)
+  db.setTicketBlocked(ticketId, false)
+  moveToDone(db, ticket)
+  return { merged: merging, conflict: false }
+}
