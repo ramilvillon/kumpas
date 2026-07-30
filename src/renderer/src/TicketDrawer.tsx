@@ -43,6 +43,8 @@ export function TicketDrawer({
   busy,
   result,
   onDispatch,
+  onRunBatch,
+  onApprove,
   onChanged,
   onClose,
 }: {
@@ -53,6 +55,8 @@ export function TicketDrawer({
   busy: boolean
   result: string | null
   onDispatch: (ticketId: number, agentId: number) => void
+  onRunBatch: (epicId: number) => void
+  onApprove: (ticketId: number) => void
   onChanged: () => void
   onClose: () => void
 }) {
@@ -161,6 +165,8 @@ export function TicketDrawer({
 
   const chosenAgentId = agentId ?? activeAgents[0]?.id ?? null
   const col = columns.find((c) => c.id === ticket?.columnId)
+  const isEpic = ticket?.kind === 'epic'
+  const canApprove = ticket?.parentId != null && col?.role === 'review'
   const assignee = agents.find((a) => a.id === ticket?.assigneeAgentId)
   const ticketTeam = teams.find((t) => t.id === ticket?.teamId)
 
@@ -504,33 +510,54 @@ export function TicketDrawer({
               </div>
             )}
 
-            {/* Footer: Dispatch */}
+            {/* Footer: batch (epic) or dispatch + approve (task) */}
             <div className="flex items-center gap-2.5 border-t border-border bg-card px-[18px] py-[14px]">
-              <Select
-                value={chosenAgentId === null ? undefined : String(chosenAgentId)}
-                onValueChange={(v) => setAgentId(Number(v))}
-                disabled={busy}
-              >
-                <SelectTrigger className="flex-1 border-border bg-secondary text-[13px]">
-                  <SelectValue placeholder="Pick an agent" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeAgents.map((a) => (
-                    <SelectItem key={a.id} value={String(a.id)}>
-                      {a.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                onClick={() => {
-                  if (chosenAgentId !== null) onDispatch(ticket.id, chosenAgentId)
-                }}
-                disabled={busy || chosenAgentId === null}
-                className="inline-flex items-center gap-[7px]"
-              >
-                {busy ? 'Running…' : 'Dispatch'}
-              </Button>
+              {isEpic ? (
+                <Button
+                  onClick={() => onRunBatch(ticket.id)}
+                  disabled={busy}
+                  className="inline-flex flex-1 items-center gap-[7px]"
+                >
+                  {busy ? 'Running batch…' : '▶ Run batch'}
+                </Button>
+              ) : (
+                <>
+                  <Select
+                    value={chosenAgentId === null ? undefined : String(chosenAgentId)}
+                    onValueChange={(v) => setAgentId(Number(v))}
+                    disabled={busy}
+                  >
+                    <SelectTrigger className="flex-1 border-border bg-secondary text-[13px]">
+                      <SelectValue placeholder="Pick an agent" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activeAgents.map((a) => (
+                        <SelectItem key={a.id} value={String(a.id)}>
+                          {a.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {canApprove && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => onApprove(ticket.id)}
+                      disabled={busy}
+                    >
+                      ✓ Approve
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => {
+                      if (chosenAgentId !== null) onDispatch(ticket.id, chosenAgentId)
+                    }}
+                    disabled={busy || chosenAgentId === null}
+                    className="inline-flex items-center gap-[7px]"
+                  >
+                    {busy ? 'Running…' : 'Dispatch'}
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         )}

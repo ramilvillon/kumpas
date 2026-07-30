@@ -135,6 +135,48 @@ export function Board({
     }
   }
 
+  async function runBatch(epicId: number) {
+    setBusyTicketId(epicId)
+    setResults((r) => ({ ...r, [epicId]: 'starting batch…' }))
+    try {
+      const { dispatched } = await api.runBatch(epicId)
+      setResults((r) => ({ ...r, [epicId]: `batch done · ${dispatched} task(s) run` }))
+    } catch (e) {
+      setResults((r) => ({
+        ...r,
+        [epicId]: `error: ${e instanceof Error ? e.message : String(e)}`,
+      }))
+    } finally {
+      setBusyTicketId(null)
+      refresh()
+    }
+  }
+
+  async function approveTicket(ticketId: number) {
+    setBusyTicketId(ticketId)
+    try {
+      const { merged, conflict, dirty } = await api.approveTicket(ticketId)
+      setResults((r) => ({
+        ...r,
+        [ticketId]: dirty
+          ? 'uncommitted work in the worktree — commit or discard it, then approve again'
+          : conflict
+            ? 'merge conflict — resolve it in the worktree, then reply to retry'
+            : merged
+              ? 'merged into the epic branch'
+              : 'approved — merge task/… by hand',
+      }))
+    } catch (e) {
+      setResults((r) => ({
+        ...r,
+        [ticketId]: `error: ${e instanceof Error ? e.message : String(e)}`,
+      }))
+    } finally {
+      setBusyTicketId(null)
+      refresh()
+    }
+  }
+
   const openTicket = tickets.find((t) => t.id === openTicketId) ?? null
 
   return (
@@ -242,6 +284,8 @@ export function Board({
         busy={openTicket !== null && busyTicketId === openTicket.id}
         result={openTicket ? (results[openTicket.id] ?? null) : null}
         onDispatch={dispatchTicket}
+        onRunBatch={runBatch}
+        onApprove={approveTicket}
         onChanged={refresh}
         onClose={() => setOpenTicketId(null)}
       />
