@@ -11,7 +11,7 @@ export interface DispatchDeps {
 }
 
 export async function dispatch(
-  deps: DispatchDeps, ticketId: number, agentId: number,
+  deps: DispatchDeps, ticketId: number, agentId: number, cwd?: string,
 ): Promise<Run> {
   const { db, providers } = deps
   const captureDiff = deps.captureDiff ?? realCaptureDiff
@@ -25,6 +25,9 @@ export async function dispatch(
   const agent = db.getAgent(agentId)
   if (agent.archived) throw new Error(`Agent '${agent.name}' is archived and cannot be dispatched`)
   const project = db.getProject(ticket.projectId)
+
+  // Batch execution passes the task's worktree; manual dispatch runs in the repo.
+  const workDir = cwd ?? project.repoPath
 
   const todoCol = db.getColumnByRole(ticket.projectId, 'todo')
   const inProgressCol = db.getColumnByRole(ticket.projectId, 'in_progress')
@@ -41,7 +44,7 @@ export async function dispatch(
     if (!provider) {
       throw new Error(`Provider '${agent.provider}' is not available in this build`)
     }
-    const result = await provider.run(prompt, project.repoPath, agent)
+    const result = await provider.run(prompt, workDir, agent)
 
     if (result.resultText.trimStart().startsWith('BLOCKED:')) {
       db.addComment(ticketId, agent.name, result.resultText, 'question')
@@ -54,7 +57,7 @@ export async function dispatch(
       })
     }
 
-    const diff = captureDiff(project.repoPath)
+    const diff = captureDiff(workDir)
     db.addComment(ticketId, agent.name, result.resultText, 'note')
     db.setTicketBlocked(ticketId, false)
     db.setTicketColumn(ticketId, reviewCol.id)
