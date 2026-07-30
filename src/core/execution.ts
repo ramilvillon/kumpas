@@ -57,30 +57,67 @@ function commitMessage(t: Ticket): string {
   return `kumpas: task ${t.id} — ${t.title}`
 }
 
-// Never rejects: one child blowing up must not abort the batch.
-async function runChild(deps: ExecutionDeps, git: ExecGit, repoPath: string, child: Ticket): Promise<void> {
+// Never rejects — guaranteed by the outer catch, not by hope: a throw from the
+// error handling itself (a locked db) would reject this child's promise, and the
+// siblings Promise.race left unobserved then take the whole process down.
+// Returns null when the task never produced a run (already in flight, or the
+// worktree/dispatch failed); the caller decides what that means.
+async function runChild(
+  deps: ExecutionDeps, git: ExecGit, repoPath: string, child: Ticket,
+  agentId: number = child.assigneeAgentId as number,
+): Promise<Run | null> {
   const { db } = deps
+  if (inFlightTasks.has(child.id)) return null // batch loop and manual dispatch must not collide
   inFlightTasks.add(child.id)
   try {
-    const wt = git.addTaskWorktree(repoPath, child.parentId as number, child.id)
-    const run = await dispatch(deps, child.id, child.assigneeAgentId as number, wt)
-    if (run.status === 'success') {
-      // A failed commit must not rewind a ticket dispatch already moved to
-      // review — the work is done, only the commit step failed.
-      try {
-        git.commitAll(wt, commitMessage(child))
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        db.addComment(child.id, SYSTEM_AUTHOR, `Could not commit this task's worktree: ${message}`, 'note')
+    try {
+      const wt = git.addTaskWorktree(repoPath, child.parentId as number, child.id)
+      const run = await dispatch(deps, child.id, agentId, wt)
+      if (run.status === 'success') {
+        // A failed commit must not rewind a ticket dispatch already moved to
+        // review — the work is done, only the commit step failed.
+        try {
+          git.commitAll(wt, commitMessage(child))
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          db.addComment(child.id, SYSTEM_AUTHOR, `Could not commit this task's worktree: ${message}`, 'note')
+        }
       }
+      return run
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      db.addComment(child.id, SYSTEM_AUTHOR, `Batch could not run this task: ${message}`, 'note')
+      db.setTicketColumn(child.id, db.getColumnByRole(child.projectId, 'todo').id)
+      return null
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    db.addComment(child.id, SYSTEM_AUTHOR, `Batch could not run this task: ${message}`, 'note')
-    db.setTicketColumn(child.id, db.getColumnByRole(child.projectId, 'todo').id)
+    // Reporting the failure failed. Nothing left that can be trusted to record
+    // it, so log and let the rest of the batch finish.
+    console.error(`kumpas: task ${child.id} failed and could not be recorded`, err)
+    return null
   } finally {
     inFlightTasks.delete(child.id)
   }
+}
+
+// Manual Dispatch from the UI. A planned child must run in its worktree no
+// matter which path started it (spec §2) — main must not decide this.
+export async function execDispatch(
+  deps: ExecutionDeps, ticketId: number, agentId: number,
+): Promise<Run> {
+  const { db } = deps
+  const ticket = db.getTicket(ticketId)
+  if (ticket.kind !== 'task' || ticket.parentId === null) {
+    return dispatch(deps, ticketId, agentId) // ordinary ticket: the user's repo, as before
+  }
+  const git = deps.git ?? realGit
+  const repoPath = db.getProject(ticket.projectId).repoPath
+  // task/{id} is cut from the epic tip, which may not exist yet: a child can be
+  // dispatched by hand before any batch has run.
+  git.ensureEpicBranch(repoPath, ticket.parentId)
+  const run = await runChild(deps, git, repoPath, ticket, agentId)
+  if (!run) throw new Error(`Could not run task ${ticketId} in its worktree — see its comments.`)
+  return run
 }
 
 export async function runBatch(
@@ -99,7 +136,7 @@ export async function runBatch(
   // No auto-retry: a child that failed returns to todo, so without this the
   // loop would pick it up again forever.
   const attempted = new Set<number>()
-  const running = new Set<Promise<void>>()
+  const running = new Set<Promise<Run | null>>()
   let dispatched = 0
   try {
     for (;;) {
@@ -168,10 +205,13 @@ export async function execApprove(
   if (merging) {
     const res = git.mergeTaskBranch(project.repoPath, ticket.parentId, ticketId)
     if (!res.ok) {
+      // The merge was already aborted, so epic/{id} holds nothing to resolve —
+      // the fix belongs on the task branch.
       db.addComment(
         ticketId, SYSTEM_AUTHOR,
-        `Merging task/${ticketId} into epic/${ticket.parentId} hit a conflict. ` +
-          `Resolve it in the worktree, then reply here to retry the merge.`, 'question',
+        `Merging task/${ticketId} into epic/${ticket.parentId} failed:\n\n${res.detail}\n\n` +
+          `Fix and commit on task/${ticketId} in its worktree, then reply here to retry the merge.`,
+        'question',
       )
       db.setTicketBlocked(ticketId, true) // stays in review; worktree kept
       return { merged: false, conflict: true, dirty: false }

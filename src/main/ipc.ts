@@ -2,7 +2,6 @@ import { app, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
 import type { AgentProvider, ProviderName } from '../core/types.js'
 import type { Db } from '../core/db.js'
-import { dispatch } from '../core/dispatch.js'
 import { isGitRepo } from '../core/git.js'
 import { copyIntoStore } from '../core/attachmentStore.js'
 import { CHANNELS } from '../shared/api.js'
@@ -12,7 +11,7 @@ import {
 } from '../core/agentInput.js'
 import { retryChat, sendChatMessage } from '../core/chat.js'
 import { createPlannedTickets, startPlanning } from '../core/planning.js'
-import { execApprove, resumeIfBlocked, runBatch } from '../core/execution.js'
+import { execApprove, execDispatch, resumeIfBlocked, runBatch } from '../core/execution.js'
 
 export function registerIpc(
   db: Db,
@@ -140,8 +139,10 @@ export function registerIpc(
     validateIntId('chatId', chatId)
     return createPlannedTickets({ db, providers }, chatId)
   })
+  // execDispatch, not dispatch: worktree policy for a planned child lives in
+  // core, so the manual Dispatch button cannot edit the user's own checkout.
   ipcMain.handle(CHANNELS.dispatch, (_e, ticketId: number, agentId: number) =>
-    dispatch({ db, providers }, ticketId, agentId),
+    execDispatch({ db, providers }, ticketId, agentId),
   )
   ipcMain.handle(CHANNELS.runBatch, (_e, epicId: number) => {
     validateIntId('epicId', epicId)
@@ -171,9 +172,11 @@ export function registerIpc(
     const comment = db.addComment(ticketId, 'human', body, 'note')
     // Fire-and-forget: a resume runs an agent for minutes; the comment must
     // return now. resumeIfBlocked no-ops unless this is a blocked child task.
-    void resumeIfBlocked({ db, providers }, ticketId).catch((err) =>
-      db.addComment(ticketId, 'kumpas', `Resume failed: ${String(err)}`, 'note'),
-    )
+    // The terminal catch matters: this handler itself writes to the db, and an
+    // unhandled rejection on a void-discarded promise would kill the process.
+    void resumeIfBlocked({ db, providers }, ticketId)
+      .catch((err) => db.addComment(ticketId, 'kumpas', `Resume failed: ${String(err)}`, 'note'))
+      .catch((err) => console.error(`kumpas: resume of ticket ${ticketId} failed`, err))
     return comment
   })
   ipcMain.handle(CHANNELS.listAttachments, (_e, ticketId) => db.listAttachments(ticketId))

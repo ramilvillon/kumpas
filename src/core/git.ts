@@ -69,6 +69,19 @@ function excludeWorktreesDir(repoPath: string): void {
   appendFileSync(file, `${current === '' || current.endsWith('\n') ? '' : '\n'}${line}\n`)
 }
 
+// Whether git itself considers this worktree live. Never ask the filesystem: a
+// directory whose .git link is missing makes every git call using it as cwd
+// resolve to the parent repo — i.e. the user's own checkout.
+function isRegisteredWorktree(repoPath: string, leaf: string): boolean {
+  // ponytail: git realpath's worktree paths in its output (e.g. macOS /var ->
+  // /private/var); realpath repoPath too so the comparison lines up.
+  const target = join(realpathSync(repoPath), WORKTREES_DIR, leaf)
+  return git(repoPath, ['worktree', 'list', '--porcelain'])
+    .split('\n')
+    .filter((l) => l.startsWith('worktree '))
+    .some((l) => resolve(l.slice('worktree '.length)) === target)
+}
+
 // The epic branch gets its own worktree: merging into a branch needs it checked
 // out somewhere, and the user's working tree must never be touched.
 export function ensureEpicBranch(repoPath: string, epicId: number): string {
@@ -80,18 +93,23 @@ export function ensureEpicBranch(repoPath: string, epicId: number): string {
     // and freshly-renamed default branches without a config knob.
     git(repoPath, ['branch', branch, branchExists(repoPath, 'main') ? 'main' : 'HEAD'])
   }
-  if (!existsSync(path)) git(repoPath, ['worktree', 'add', path, branch])
+  // Registrations left over from a moved project or a `git clean -xdf` would
+  // otherwise fail every `worktree add` forever; prune self-heals them.
+  git(repoPath, ['worktree', 'prune'])
+  if (!isRegisteredWorktree(repoPath, `epic-${epicId}`)) {
+    if (existsSync(path)) {
+      throw new Error(
+        `${path} exists but is not a registered git worktree. Kumpas will not use it — ` +
+          `delete that directory and retry.`,
+      )
+    }
+    git(repoPath, ['worktree', 'add', path, branch])
+  }
   return path
 }
 
 export function hasTaskWorktree(repoPath: string, taskId: number): boolean {
-  // ponytail: git realpath's worktree paths in its output (e.g. macOS /var ->
-  // /private/var); realpath repoPath too so the comparison lines up.
-  const target = join(realpathSync(repoPath), WORKTREES_DIR, `task-${taskId}`)
-  return git(repoPath, ['worktree', 'list', '--porcelain'])
-    .split('\n')
-    .filter((l) => l.startsWith('worktree '))
-    .some((l) => resolve(l.slice('worktree '.length)) === target)
+  return isRegisteredWorktree(repoPath, `task-${taskId}`)
 }
 
 export function addTaskWorktree(repoPath: string, epicId: number, taskId: number): string {
@@ -120,16 +138,24 @@ export function commitAll(worktreePath: string, message: string): boolean {
   return gitOk(worktreePath, ['commit', '-q', '-m', message])
 }
 
-export type MergeResult = { ok: true } | { ok: false; conflict: true }
+export type MergeResult = { ok: true } | { ok: false; conflict: true; detail: string }
 
-// ponytail: every non-zero merge exit reads as a conflict — the caller's
-// response (BLOCKED + human resolves in the worktree) is the same either way.
+// ponytail: no exit-code triage — git's own output goes in `detail` and reaches
+// the human, so a locked index doesn't have to masquerade as a conflict.
 export function mergeTaskBranch(repoPath: string, epicId: number, taskId: number): MergeResult {
   const cwd = ensureEpicBranch(repoPath, epicId)
-  const ok = gitOk(cwd, ['merge', '--no-ff', '-m', `merge ${taskBranch(taskId)}`, taskBranch(taskId)])
-  if (ok) return { ok: true }
-  gitOk(cwd, ['merge', '--abort']) // leave the integration branch clean
-  return { ok: false, conflict: true }
+  const args = ['merge', '--no-ff', '-m', `merge ${taskBranch(taskId)}`, taskBranch(taskId)]
+  try {
+    git(cwd, args)
+    return { ok: true }
+  } catch (err) {
+    // git reports conflicts on stdout and hard failures on stderr; take both.
+    const e = err as { stdout?: Buffer; stderr?: Buffer; message?: string }
+    const detail =
+      `${e.stdout?.toString() ?? ''}${e.stderr?.toString() ?? ''}`.trim() || String(e.message)
+    gitOk(cwd, ['merge', '--abort']) // leave the integration branch clean
+    return { ok: false, conflict: true, detail }
+  }
 }
 
 // Approve force-removes the worktree, so anything uncommitted there is gone for

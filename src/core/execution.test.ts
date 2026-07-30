@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { expect, test } from 'vitest'
 import { Db, MIGRATIONS } from './db.js'
-import { execApprove, resumeIfBlocked, runBatch, type ExecGit } from './execution.js'
+import { execApprove, execDispatch, resumeIfBlocked, runBatch, type ExecGit } from './execution.js'
 import type { AgentProvider } from './types.js'
 
 export function fakeGit(log: string[] = []): ExecGit {
@@ -157,6 +157,67 @@ test('a commit failure after a successful run leaves the child in review', async
   expect(commitComment?.author).toBe('kumpas')
 })
 
+test('a child whose own error handler throws does not reject the batch', async () => {
+  const { db, projectId, epicId, children } = setup(3)
+  // Every addComment for the first child throws — including the one runChild's
+  // catch block makes, which used to reject and take the whole batch down.
+  const realAdd = db.addComment.bind(db)
+  db.addComment = (id, author, body, kind) => {
+    if (id === children[0].id) throw new Error('database is locked')
+    return realAdd(id, author, body, kind)
+  }
+
+  const res = await runBatch(deps(db, okProvider), epicId)
+  expect(res.dispatched).toBe(3)
+  const review = db.getColumnByRole(projectId, 'review').id
+  expect(db.getTicket(children[1].id).columnId).toBe(review)
+  expect(db.getTicket(children[2].id).columnId).toBe(review)
+})
+
+function watchDir(): { provider: AgentProvider; dir: () => string } {
+  let seen = ''
+  return {
+    provider: {
+      run: async (_p, repoPath) => {
+        seen = repoPath
+        return { resultText: 'implemented', tokensIn: 1, tokensOut: 1 }
+      },
+    },
+    dir: () => seen,
+  }
+}
+
+test('manual dispatch of a planned child runs in its worktree and commits', async () => {
+  const { db, projectId, epicId, children, agentId } = setup(1)
+  const log: string[] = []
+  const w = watchDir()
+  const run = await execDispatch(deps(db, w.provider, fakeGit(log)), children[0].id, agentId)
+  expect(w.dir()).toBe(`/wt/task-${children[0].id}`)
+  expect(log).toContain(`ensureEpic:${epicId}`) // the task branch is cut from the epic tip
+  expect(log).toContain(`commit:/wt/task-${children[0].id}`)
+  expect(run.status).toBe('success')
+  expect(db.getTicket(children[0].id).columnId).toBe(db.getColumnByRole(projectId, 'review').id)
+})
+
+test('manual dispatch of a ticket with no parent still runs in the project repo', async () => {
+  const { db, projectId, agentId } = setup(1)
+  const loose = db.createTicket(projectId, 'loose', 'x', { assigneeAgentId: agentId })
+  const log: string[] = []
+  const w = watchDir()
+  const run = await execDispatch(deps(db, w.provider, fakeGit(log)), loose.id, agentId)
+  expect(w.dir()).toBe('/repo/demo')
+  expect(log).toEqual([]) // no worktree touched at all
+  expect(run.status).toBe('success')
+})
+
+test('manual dispatch honours the chosen agent over the ticket assignee', async () => {
+  const { db, children, agentId } = setup(1)
+  const other = db.createAgent('Other', 'claude', 'claude-opus-5', 'sp', 'edit')
+  const run = await execDispatch(deps(db, okProvider, fakeGit()), children[0].id, other.id)
+  expect(run.agentId).toBe(other.id)
+  expect(other.id).not.toBe(agentId)
+})
+
 test('runBatch refuses a ticket that is not an epic', async () => {
   const { db, children } = setup(1)
   await expect(runBatch(deps(db, okProvider), children[0].id)).rejects.toThrow(/epic/)
@@ -220,7 +281,8 @@ test('approve on a conflict blocks the ticket in review and keeps the worktree',
   const log: string[] = []
   const git = fakeGit(log)
   await toReview(db, epicId, git)
-  git.mergeTaskBranch = () => ({ ok: false, conflict: true })
+  const detail = 'CONFLICT (content): Merge conflict in a.txt'
+  git.mergeTaskBranch = () => ({ ok: false, conflict: true, detail })
 
   const res = await execApprove(deps(db, okProvider, git), children[0].id)
   expect(res).toEqual({ merged: false, conflict: true, dirty: false })
@@ -231,6 +293,8 @@ test('approve on a conflict blocks the ticket in review and keeps the worktree',
   const last = db.listComments(children[0].id).at(-1)!
   expect(last.kind).toBe('question')
   expect(last.author).toBe('kumpas')
+  expect(last.body).toContain(detail) // git's own words, not a guess
+  expect(last.body).toContain(`task/${children[0].id}`) // where to fix and commit
 })
 
 test('approve refuses a task whose worktree still holds uncommitted work', async () => {
@@ -341,7 +405,7 @@ test('resumeIfBlocked retries the merge when the block came from a conflict', as
   const log: string[] = []
   const git = fakeGit(log)
   await runBatch(deps(db, okProvider, git), epicId)
-  git.mergeTaskBranch = () => ({ ok: false, conflict: true })
+  git.mergeTaskBranch = () => ({ ok: false, conflict: true, detail: 'CONFLICT in a.txt' })
   await execApprove(deps(db, okProvider, git), children[0].id)
   expect(db.getTicket(children[0].id).blocked).toBe(1)
 

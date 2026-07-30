@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
   mkdtempSync as mkdtemp2,
 } from 'node:fs'
@@ -19,6 +20,7 @@ import {
   isTaskWorktreeDirty,
   mergeTaskBranch,
   removeTaskWorktree,
+  WORKTREES_DIR,
 } from './git.js'
 
 function newRepo(): string {
@@ -77,6 +79,39 @@ test('ensureEpicBranch keeps the worktrees dir out of the repo status', () => {
   // recorded locally, not in the user's tracked .gitignore
   expect(readFileSync(join(repo, '.git', 'info', 'exclude'), 'utf8')).toContain('.kumpas-worktrees/')
   expect(existsSync(join(repo, '.gitignore'))).toBe(false)
+})
+
+function branchOf(cwd: string): string {
+  return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd }).toString().trim()
+}
+
+test('ensureEpicBranch refuses a gutted worktree instead of falling through to the parent repo', () => {
+  const repo = newRepo()
+  const epicWt = ensureEpicBranch(repo, 9)
+  const taskWt = addTaskWorktree(repo, 9, 5)
+  writeFileSync(join(taskWt, 'agent.txt'), 'agent work\n')
+  commitAll(taskWt, 'task 5')
+  const userBranch = branchOf(repo)
+
+  // The directory survives but its .git link is gone: git run with this cwd
+  // resolves to the parent repo, i.e. the user's own checkout.
+  rmSync(join(epicWt, '.git'))
+
+  expect(() => ensureEpicBranch(repo, 9)).toThrow(/kumpas-worktrees/)
+  expect(() => mergeTaskBranch(repo, 9, 5)).toThrow()
+  // What matters: the user's checkout is untouched — nothing merged into it.
+  expect(branchOf(repo)).toBe(userBranch)
+  expect(execFileSync('git', ['status', '--porcelain'], { cwd: repo }).toString().trim()).toBe('')
+  expect(existsSync(join(repo, 'agent.txt'))).toBe(false)
+})
+
+test('ensureEpicBranch prunes a stale registration and recreates the worktree', () => {
+  const repo = newRepo()
+  const epicWt = ensureEpicBranch(repo, 9)
+  rmSync(join(repo, WORKTREES_DIR), { recursive: true, force: true }) // e.g. git clean -xdf
+
+  expect(ensureEpicBranch(repo, 9)).toBe(epicWt)
+  expect(branchOf(epicWt)).toBe('epic/9')
 })
 
 test('addTaskWorktree branches task/{id} off the epic tip and is idempotent', () => {
@@ -145,7 +180,11 @@ test('mergeTaskBranch reports a conflict and leaves the epic branch clean', () =
   commitAll(second, 'task 43')
 
   expect(mergeTaskBranch(repo, 7, 42)).toEqual({ ok: true })
-  expect(mergeTaskBranch(repo, 7, 43)).toEqual({ ok: false, conflict: true })
+  const res = mergeTaskBranch(repo, 7, 43)
+  expect(res.ok).toBe(false)
+  expect(res).toMatchObject({ conflict: true })
+  // git's own words travel with the failure, so the comment can be specific
+  expect(res.ok === false && res.detail).toContain('a.txt')
   // aborted: no MERGE_HEAD left behind, working tree clean, 42's content intact
   expect(existsSync(join(repo, '.git', 'worktrees', 'epic-7', 'MERGE_HEAD'))).toBe(false)
   expect(execFileSync('git', ['status', '--porcelain'], { cwd: epicWt }).toString().trim()).toBe('')
