@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { expect, test } from 'vitest'
 import { Db, MIGRATIONS } from './db.js'
-import { execApprove, runBatch, type ExecGit } from './execution.js'
+import { execApprove, resumeIfBlocked, runBatch, type ExecGit } from './execution.js'
 import type { AgentProvider } from './types.js'
 
 export function fakeGit(log: string[] = []): ExecGit {
@@ -275,4 +275,58 @@ test('approve refuses a ticket with no parent epic', async () => {
   const loose = db.createTicket(projectId, 'loose', 'x', { assigneeAgentId: agentId })
   db.setTicketColumn(loose.id, db.getColumnByRole(projectId, 'review').id)
   await expect(execApprove(deps(db, okProvider), loose.id)).rejects.toThrow(/child task/)
+})
+
+const blockedProvider: AgentProvider = {
+  run: async () => ({ resultText: 'BLOCKED: which database?', tokensIn: 1, tokensOut: 1 }),
+}
+
+test('resumeIfBlocked re-dispatches a blocked task in its worktree', async () => {
+  const { db, projectId, epicId, children } = setup(1)
+  const log: string[] = []
+  const git = fakeGit(log)
+  await runBatch(deps(db, blockedProvider, git), epicId)
+  const child = children[0]
+  expect(db.getTicket(child.id).blocked).toBe(1)
+
+  db.addComment(child.id, 'human', 'Use SQLite.', 'note')
+  let seenDir = ''
+  const answering: AgentProvider = {
+    run: async (prompt, repoPath) => {
+      seenDir = repoPath
+      expect(prompt).toContain('Use SQLite.')
+      return { resultText: 'implemented', tokensIn: 1, tokensOut: 1 }
+    },
+  }
+  const run = await resumeIfBlocked(deps(db, answering, git), child.id)
+  expect(run?.status).toBe('success')
+  expect(seenDir).toBe(`/wt/task-${child.id}`)
+  const after = db.getTicket(child.id)
+  expect(after.blocked).toBe(0)
+  expect(after.columnId).toBe(db.getColumnByRole(projectId, 'review').id)
+})
+
+test('resumeIfBlocked ignores tickets that are not blocked children', async () => {
+  const { db, projectId, epicId, children, agentId } = setup(1)
+  await runBatch(deps(db, okProvider), epicId) // success → review, not blocked
+  expect(await resumeIfBlocked(deps(db, okProvider), children[0].id)).toBeNull()
+
+  const loose = db.createTicket(projectId, 'loose', 'x', { assigneeAgentId: agentId })
+  db.setTicketBlocked(loose.id, true)
+  expect(await resumeIfBlocked(deps(db, okProvider), loose.id)).toBeNull() // no parent epic
+})
+
+test('resumeIfBlocked retries the merge when the block came from a conflict', async () => {
+  const { db, projectId, epicId, children } = setup(1)
+  const log: string[] = []
+  const git = fakeGit(log)
+  await runBatch(deps(db, okProvider, git), epicId)
+  git.mergeTaskBranch = () => ({ ok: false, conflict: true })
+  await execApprove(deps(db, okProvider, git), children[0].id)
+  expect(db.getTicket(children[0].id).blocked).toBe(1)
+
+  git.mergeTaskBranch = (_r, _e, id) => { log.push(`merge:${id}`); return { ok: true } }
+  const run = await resumeIfBlocked(deps(db, okProvider, git), children[0].id)
+  expect(run).toBeNull() // an approve retry, not an agent run
+  expect(db.getTicket(children[0].id).columnId).toBe(db.getColumnByRole(projectId, 'done').id)
 })

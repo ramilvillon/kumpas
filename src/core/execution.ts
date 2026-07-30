@@ -1,5 +1,5 @@
 import type { Db } from './db.js'
-import type { Ticket } from './types.js'
+import type { Run, Ticket } from './types.js'
 import { dispatch, type DispatchDeps } from './dispatch.js'
 import {
   addTaskWorktree, commitAll, ensureEpicBranch, mergeTaskBranch, removeTaskWorktree,
@@ -166,4 +166,36 @@ export async function execApprove(
   db.setTicketBlocked(ticketId, false)
   moveToDone(db, ticket)
   return { merged: merging, conflict: false }
+}
+
+// Called from the addComment IPC handler on every human comment; returns null
+// for the overwhelming majority of tickets, which are not blocked children.
+export async function resumeIfBlocked(
+  deps: ExecutionDeps, ticketId: number,
+): Promise<Run | null> {
+  const { db } = deps
+  const git = deps.git ?? realGit
+  const ticket = db.getTicket(ticketId)
+  if (!ticket.blocked || ticket.parentId === null || ticket.assigneeAgentId === null) return null
+  if (inFlightTasks.has(ticketId)) return null // a second reply must not double-dispatch
+
+  // Blocked while in review = the approve merge conflicted. The human resolved
+  // it in the worktree; retry the merge instead of re-running the agent.
+  if (ticket.columnId === db.getColumnByRole(ticket.projectId, 'review').id) {
+    db.setTicketBlocked(ticketId, false)
+    await execApprove(deps, ticketId)
+    return null
+  }
+
+  const project = db.getProject(ticket.projectId)
+  inFlightTasks.add(ticketId)
+  try {
+    db.setTicketBlocked(ticketId, false)
+    const wt = git.addTaskWorktree(project.repoPath, ticket.parentId, ticketId)
+    const run = await dispatch(deps, ticketId, ticket.assigneeAgentId, wt)
+    if (run.status === 'success') git.commitAll(wt, commitMessage(ticket))
+    return run
+  } finally {
+    inFlightTasks.delete(ticketId)
+  }
 }
