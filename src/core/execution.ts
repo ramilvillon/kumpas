@@ -60,14 +60,15 @@ function commitMessage(t: Ticket): string {
 // Never rejects — guaranteed by the outer catch, not by hope: a throw from the
 // error handling itself (a locked db) would reject this child's promise, and the
 // siblings Promise.race left unobserved then take the whole process down.
-// Returns null when the task never produced a run (already in flight, or the
-// worktree/dispatch failed); the caller decides what that means.
+// A task that never produced a run returns the reason instead of throwing, so
+// manual dispatch can show it without the throw escaping runBatch's children.
 async function runChild(
   deps: ExecutionDeps, git: ExecGit, repoPath: string, child: Ticket,
   agentId: number = child.assigneeAgentId as number,
-): Promise<Run | null> {
+): Promise<Run | { error: string }> {
   const { db } = deps
-  if (inFlightTasks.has(child.id)) return null // batch loop and manual dispatch must not collide
+  // batch loop and manual dispatch must not collide
+  if (inFlightTasks.has(child.id)) return { error: `task ${child.id} is already running` }
   inFlightTasks.add(child.id)
   try {
     try {
@@ -88,13 +89,13 @@ async function runChild(
       const message = err instanceof Error ? err.message : String(err)
       db.addComment(child.id, SYSTEM_AUTHOR, `Batch could not run this task: ${message}`, 'note')
       db.setTicketColumn(child.id, db.getColumnByRole(child.projectId, 'todo').id)
-      return null
+      return { error: message }
     }
   } catch (err) {
     // Reporting the failure failed. Nothing left that can be trusted to record
     // it, so log and let the rest of the batch finish.
     console.error(`kumpas: task ${child.id} failed and could not be recorded`, err)
-    return null
+    return { error: err instanceof Error ? err.message : String(err) }
   } finally {
     inFlightTasks.delete(child.id)
   }
@@ -115,9 +116,12 @@ export async function execDispatch(
   // task/{id} is cut from the epic tip, which may not exist yet: a child can be
   // dispatched by hand before any batch has run.
   git.ensureEpicBranch(repoPath, ticket.parentId)
-  const run = await runChild(deps, git, repoPath, ticket, agentId)
-  if (!run) throw new Error(`Could not run task ${ticketId} in its worktree — see its comments.`)
-  return run
+  const res = await runChild(deps, git, repoPath, ticket, agentId)
+  // The real reason, not a generic one: an archived agent or an unusable
+  // worktree has to reach the board's result line. runChild already recorded it
+  // as a comment, so this throw only carries it — it cannot escape a batch.
+  if ('error' in res) throw new Error(res.error)
+  return res
 }
 
 export async function runBatch(
@@ -136,7 +140,7 @@ export async function runBatch(
   // No auto-retry: a child that failed returns to todo, so without this the
   // loop would pick it up again forever.
   const attempted = new Set<number>()
-  const running = new Set<Promise<Run | null>>()
+  const running = new Set<Promise<Run | { error: string }>>()
   let dispatched = 0
   try {
     for (;;) {

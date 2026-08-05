@@ -82,29 +82,43 @@ function isRegisteredWorktree(repoPath: string, leaf: string): boolean {
     .some((l) => resolve(l.slice('worktree '.length)) === target)
 }
 
+// The only way to a worktree path: returns it when git owns a live worktree
+// there, null when there is nothing, and throws when the directory exists but
+// git does not own it — a gutted worktree must never be handed to a caller,
+// because git run with that cwd resolves to the user's own checkout.
+// A live registration alone is not enough: `.git` can be deleted underneath one.
+// ponytail: prune on every call — one extra git call per task, cheaper than
+// any way of knowing it isn't needed.
+function liveWorktree(repoPath: string, leaf: string): string | null {
+  // Registrations left over from a moved project, a `git clean -xdf` or a
+  // deleted .git link would otherwise fail every `worktree add` forever — or,
+  // worse, be trusted; prune self-heals them.
+  git(repoPath, ['worktree', 'prune'])
+  const path = join(repoPath, WORKTREES_DIR, leaf)
+  if (isRegisteredWorktree(repoPath, leaf)) return path
+  if (existsSync(path)) {
+    throw new Error(
+      `${path} exists but is not a registered git worktree. Kumpas will not use it — ` +
+        `delete that directory and retry.`,
+    )
+  }
+  return null
+}
+
 // The epic branch gets its own worktree: merging into a branch needs it checked
 // out somewhere, and the user's working tree must never be touched.
 export function ensureEpicBranch(repoPath: string, epicId: number): string {
   excludeWorktreesDir(repoPath)
   const branch = epicBranch(epicId)
-  const path = epicWorktreePath(repoPath, epicId)
   if (!branchExists(repoPath, branch)) {
     // ponytail: 'main' when it exists, else the current HEAD — covers master
     // and freshly-renamed default branches without a config knob.
     git(repoPath, ['branch', branch, branchExists(repoPath, 'main') ? 'main' : 'HEAD'])
   }
-  // Registrations left over from a moved project or a `git clean -xdf` would
-  // otherwise fail every `worktree add` forever; prune self-heals them.
-  git(repoPath, ['worktree', 'prune'])
-  if (!isRegisteredWorktree(repoPath, `epic-${epicId}`)) {
-    if (existsSync(path)) {
-      throw new Error(
-        `${path} exists but is not a registered git worktree. Kumpas will not use it — ` +
-          `delete that directory and retry.`,
-      )
-    }
-    git(repoPath, ['worktree', 'add', path, branch])
-  }
+  const live = liveWorktree(repoPath, `epic-${epicId}`)
+  if (live) return live
+  const path = epicWorktreePath(repoPath, epicId)
+  git(repoPath, ['worktree', 'add', path, branch])
   return path
 }
 
@@ -113,8 +127,9 @@ export function hasTaskWorktree(repoPath: string, taskId: number): boolean {
 }
 
 export function addTaskWorktree(repoPath: string, epicId: number, taskId: number): string {
+  const live = liveWorktree(repoPath, `task-${taskId}`)
+  if (live) return live
   const path = taskWorktreePath(repoPath, taskId)
-  if (hasTaskWorktree(repoPath, taskId)) return path
   const branch = taskBranch(taskId)
   if (branchExists(repoPath, branch)) {
     git(repoPath, ['worktree', 'add', path, branch]) // re-run / resume: reuse the branch

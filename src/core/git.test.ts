@@ -114,6 +114,39 @@ test('ensureEpicBranch prunes a stale registration and recreates the worktree', 
   expect(branchOf(epicWt)).toBe('epic/9')
 })
 
+test('addTaskWorktree refuses a gutted task worktree, live registration or not', () => {
+  const repo = newRepo()
+  ensureEpicBranch(repo, 9)
+  const taskWt = addTaskWorktree(repo, 9, 5)
+  const userBranch = branchOf(repo)
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo }).toString().trim()
+  writeFileSync(join(repo, 'user-work.txt'), 'the user is mid-edit\n')
+
+  // The registration is still live; only the .git link is gone. Trusting it
+  // would make commitAll here commit the user's own work onto their branch.
+  rmSync(join(taskWt, '.git'))
+  expect(hasTaskWorktree(repo, 5)).toBe(true) // git says live — and git is wrong
+
+  expect(() => addTaskWorktree(repo, 9, 5)).toThrow(/kumpas-worktrees/)
+  expect(branchOf(repo)).toBe(userBranch)
+  expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo }).toString().trim()).toBe(head)
+  expect(execFileSync('git', ['status', '--porcelain'], { cwd: repo }).toString())
+    .toBe('?? user-work.txt\n') // still uncommitted, still the user's
+})
+
+test('addTaskWorktree prunes a stale registration and recreates the worktree', () => {
+  const repo = newRepo()
+  ensureEpicBranch(repo, 9)
+  const wt = addTaskWorktree(repo, 9, 5)
+  writeFileSync(join(wt, 'task.txt'), 'work\n')
+  commitAll(wt, 'task 5')
+  rmSync(wt, { recursive: true, force: true }) // e.g. git clean -xdf
+
+  expect(addTaskWorktree(repo, 9, 5)).toBe(wt)
+  expect(branchOf(wt)).toBe('task/5')
+  expect(existsSync(join(wt, 'task.txt'))).toBe(true) // the branch's commit, back
+})
+
 test('addTaskWorktree branches task/{id} off the epic tip and is idempotent', () => {
   const repo = newRepo()
   const epicWt = ensureEpicBranch(repo, 7)

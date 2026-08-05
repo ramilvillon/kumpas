@@ -161,7 +161,7 @@ export function Board({
         [ticketId]: dirty
           ? 'uncommitted work in the worktree — commit or discard it, then approve again'
           : conflict
-            ? 'merge conflict — resolve it in the worktree, then reply to retry'
+            ? `merge into the epic branch conflicted — fix and commit on task/${ticketId} in its worktree, then reply to retry`
             : merged
               ? 'merged into the epic branch'
               : 'approved — merge task/… by hand',

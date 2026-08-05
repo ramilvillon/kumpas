@@ -1,4 +1,5 @@
-import { mkdtempSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
@@ -218,6 +219,22 @@ test('manual dispatch honours the chosen agent over the ticket assignee', async 
   expect(other.id).not.toBe(agentId)
 })
 
+test('manual dispatch reports why it could not run instead of a generic message', async () => {
+  const { db, projectId, children, agentId } = setup(1)
+  const git = fakeGit()
+  git.addTaskWorktree = () => { throw new Error('not a registered git worktree') }
+  await expect(execDispatch(deps(db, okProvider, git), children[0].id, agentId))
+    .rejects.toThrow(/not a registered git worktree/)
+  expect(db.getTicket(children[0].id).columnId).toBe(db.getColumnByRole(projectId, 'todo').id)
+})
+
+test('manual dispatch of a planned child to an archived agent says so', async () => {
+  const { db, children, agentId } = setup(1)
+  db.updateAgent(agentId, { archived: true })
+  await expect(execDispatch(deps(db, okProvider, fakeGit()), children[0].id, agentId))
+    .rejects.toThrow(/archived/)
+})
+
 test('runBatch refuses a ticket that is not an epic', async () => {
   const { db, children } = setup(1)
   await expect(runBatch(deps(db, okProvider), children[0].id)).rejects.toThrow(/epic/)
@@ -398,6 +415,41 @@ test('resumeIfBlocked ignores tickets that are not blocked children', async () =
   const loose = db.createTicket(projectId, 'loose', 'x', { assigneeAgentId: agentId })
   db.setTicketBlocked(loose.id, true)
   expect(await resumeIfBlocked(deps(db, okProvider), loose.id)).toBeNull() // no parent epic
+})
+
+// The one path to a task worktree that never runs ensureEpicBranch first. Real
+// git, no seam: a gutted worktree used to make every git call here resolve to
+// the user's own checkout, and commitAll then committed their work onto it.
+test('resumeIfBlocked refuses a gutted worktree and leaves the user checkout alone', async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'kumpas-resume-'))
+  const run = (args: string[], cwd = repo) => execFileSync('git', args, { cwd }).toString().trim()
+  run(['init', '-q'])
+  run(['config', 'user.email', 't@t.co'])
+  run(['config', 'user.name', 't'])
+  writeFileSync(join(repo, 'a.txt'), 'one\n')
+  run(['add', '.'])
+  run(['commit', '-qm', 'init'])
+
+  const db = new Db(':memory:')
+  const p = db.createProject('demo', repo)
+  const epic = db.createTicket(p.id, 'Epic', 'spec', { kind: 'epic' })
+  const agent = db.createAgent('Dev', 'claude', 'claude-sonnet-5', 'sp', 'edit')
+  const child = db.createTicket(p.id, 'task', 'do it', {
+    parentId: epic.id, assigneeAgentId: agent.id,
+  })
+  const realDeps = { db, providers: { claude: blockedProvider }, captureDiff: () => '' }
+  await runBatch(realDeps, epic.id) // real worktrees; BLOCKED leaves the child blocked
+  expect(db.getTicket(child.id).blocked).toBe(1)
+
+  rmSync(join(repo, '.kumpas-worktrees', `task-${child.id}`, '.git'))
+  writeFileSync(join(repo, 'user-work.txt'), 'the user is mid-edit\n')
+  const branch = run(['rev-parse', '--abbrev-ref', 'HEAD'])
+  const head = run(['rev-parse', 'HEAD'])
+
+  await expect(resumeIfBlocked(realDeps, child.id)).rejects.toThrow(/kumpas-worktrees/)
+  expect(run(['rev-parse', '--abbrev-ref', 'HEAD'])).toBe(branch)
+  expect(run(['rev-parse', 'HEAD'])).toBe(head) // nothing committed onto the user's branch
+  expect(run(['status', '--porcelain'])).toBe('?? user-work.txt')
 })
 
 test('resumeIfBlocked retries the merge when the block came from a conflict', async () => {
