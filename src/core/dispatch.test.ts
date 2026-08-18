@@ -112,3 +112,31 @@ test('dispatch refuses an archived agent', async () => {
   ).rejects.toThrow(/archived/)
   expect(db.listRuns(ticketId)).toHaveLength(0)
 })
+
+test('dispatch runs the agent and captures the diff in the given working directory', async () => {
+  const { db, ticketId, agentId } = setup()
+  let seenRunDir = ''
+  let seenDiffDir = ''
+  const provider: AgentProvider = {
+    run: async (_p, repoPath) => {
+      seenRunDir = repoPath
+      return { resultText: 'implemented', tokensIn: 1, tokensOut: 1 }
+    },
+  }
+  const deps = {
+    db,
+    providers: { claude: provider },
+    captureDiff: (dir: string) => {
+      seenDiffDir = dir
+      return ''
+    },
+  }
+  await dispatch(deps, ticketId, agentId, '/wt/task-1')
+  expect(seenRunDir).toBe('/wt/task-1')
+  expect(seenDiffDir).toBe('/wt/task-1')
+
+  // omitted → the project repo, exactly as before
+  await dispatch(deps, ticketId, agentId)
+  expect(seenRunDir).toBe('/repo/demo')
+  expect(seenDiffDir).toBe('/repo/demo')
+})

@@ -4,6 +4,7 @@ import type { Project } from '../../core/types'
 import { api, baseName } from './api'
 import { Board, type MainTab } from './Board'
 import { AgentsPane } from './AgentsView'
+import { SettingsDialog } from './SettingsDialog'
 import { Button } from '@/components/ui/button'
 import { hue } from './lib/visuals'
 
@@ -44,6 +45,7 @@ interface SidebarViewProps {
   onToggleTheme: () => void
   agentsActive: boolean
   onOpenAgents: () => void
+  onOpenSettings: () => void
 }
 
 function SidebarView(p: SidebarViewProps) {
@@ -186,11 +188,13 @@ function SidebarView(p: SidebarViewProps) {
         <h4 className="font-display px-1 pb-1.5 text-[9px] uppercase tracking-[0.18em] text-muted-foreground/70">
           Other
         </h4>
-        {/* ponytail: Settings is static — no feature behind it yet */}
-        <div className="flex items-center gap-[9px] rounded-[7px] px-2 py-[7px] text-[13px] text-muted-foreground">
+        <button
+          onClick={p.onOpenSettings}
+          className="flex w-full items-center gap-[9px] rounded-[7px] px-2 py-[7px] text-[13px] text-muted-foreground transition-colors hover:bg-card/60 hover:text-foreground"
+        >
           <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-muted-foreground/40" />
           Settings
-        </div>
+        </button>
       </div>
 
       {/* Footer identity card */}
@@ -226,6 +230,7 @@ export default function App() {
   const flyoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [mainTab, setMainTab] = useState<MainTab>('chats')
   const [agentsOpen, setAgentsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const { dark, toggle } = useTheme()
 
   useEffect(() => {
@@ -290,6 +295,7 @@ export default function App() {
     onToggleTheme: toggle,
     agentsActive: agentsOpen && mainTab === 'agents',
     onOpenAgents: openAgents,
+    onOpenSettings: () => setSettingsOpen(true),
   }
 
   const sidebarToggle = (
@@ -372,6 +378,7 @@ export default function App() {
           />
         )}
       </main>
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   )
 }

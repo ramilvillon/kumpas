@@ -43,6 +43,8 @@ export interface KumpasApi {
   planChat(chatId: number, teamId: number): Promise<ChatMessage>
   createPlannedTickets(chatId: number): Promise<ChatMessage>
   dispatch(ticketId: number, agentId: number): Promise<Run>
+  runBatch(epicId: number): Promise<{ dispatched: number }>
+  approveTicket(ticketId: number): Promise<{ merged: boolean; conflict: boolean; dirty: boolean }>
   getSetting(key: string): Promise<string | null>
   setSetting(key: string, value: string): Promise<void>
   listComments(ticketId: number): Promise<Comment[]>
@@ -81,6 +83,8 @@ export const CHANNELS: Record<keyof KumpasApi, string> = {
   planChat: 'chats:plan',
   createPlannedTickets: 'chats:createTickets',
   dispatch: 'dispatch:run',
+  runBatch: 'exec:runBatch',
+  approveTicket: 'exec:approve',
   getSetting: 'settings:get',
   setSetting: 'settings:set',
   listComments: 'comments:list',

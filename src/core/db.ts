@@ -135,13 +135,17 @@ export const MIGRATIONS: string[] = [
    ALTER TABLE tickets ADD COLUMN kind TEXT NOT NULL DEFAULT 'task';`,
   // v6 → v7: planning — child tasks link to their epic.
   'ALTER TABLE tickets ADD COLUMN parent_id INTEGER REFERENCES tickets(id);',
+  // v7 → v8: the approve gate needs a role-keyed Done column.
+  // ponytail: best-effort name match — a project that renamed "Done" gets no
+  // done-role column; execApprove falls back to leaving the ticket in review.
+  `UPDATE columns SET role = 'done' WHERE role IS NULL AND name = 'Done';`,
 ]
 
 const DEFAULT_COLUMNS: { name: string; role: ColumnRole | null }[] = [
   { name: 'Backlog', role: 'todo' },
   { name: 'In Progress', role: 'in_progress' },
   { name: 'Review', role: 'review' },
-  { name: 'Done', role: null },
+  { name: 'Done', role: 'done' },
 ]
 
 export class Db {

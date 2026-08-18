@@ -2,8 +2,8 @@ export type RunStatus = 'success' | 'failed' | 'blocked'
 export type CommentKind = 'note' | 'question'
 
 // Reserved roles the dispatch engine keys off. A column with role === null is
-// a plain user column (e.g. "Done") the engine never moves tickets into.
-export type ColumnRole = 'todo' | 'in_progress' | 'review'
+// a plain user column the engine never moves tickets into.
+export type ColumnRole = 'todo' | 'in_progress' | 'review' | 'done'
 
 export interface Project {
   id: number

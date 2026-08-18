@@ -2,7 +2,6 @@ import { app, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
 import type { AgentProvider, ProviderName } from '../core/types.js'
 import type { Db } from '../core/db.js'
-import { dispatch } from '../core/dispatch.js'
 import { isGitRepo } from '../core/git.js'
 import { copyIntoStore } from '../core/attachmentStore.js'
 import { CHANNELS } from '../shared/api.js'
@@ -12,6 +11,7 @@ import {
 } from '../core/agentInput.js'
 import { retryChat, sendChatMessage } from '../core/chat.js'
 import { createPlannedTickets, startPlanning } from '../core/planning.js'
+import { execApprove, execDispatch, resumeIfBlocked, runBatch } from '../core/execution.js'
 
 export function registerIpc(
   db: Db,
@@ -139,10 +139,22 @@ export function registerIpc(
     validateIntId('chatId', chatId)
     return createPlannedTickets({ db, providers }, chatId)
   })
+  // execDispatch, not dispatch: worktree policy for a planned child lives in
+  // core, so the manual Dispatch button cannot edit the user's own checkout.
   ipcMain.handle(CHANNELS.dispatch, (_e, ticketId: number, agentId: number) =>
-    dispatch({ db, providers }, ticketId, agentId),
+    execDispatch({ db, providers }, ticketId, agentId),
   )
-  const RENDERER_SETTINGS = new Set(['theme', 'sidebar:collapsed', 'tabs:order'])
+  ipcMain.handle(CHANNELS.runBatch, (_e, epicId: number) => {
+    validateIntId('epicId', epicId)
+    return runBatch({ db, providers }, epicId)
+  })
+  ipcMain.handle(CHANNELS.approveTicket, (_e, ticketId: number) => {
+    validateIntId('ticketId', ticketId)
+    return execApprove({ db, providers }, ticketId)
+  })
+  const RENDERER_SETTINGS = new Set([
+    'theme', 'sidebar:collapsed', 'tabs:order', 'exec:autoMerge', 'exec:parallelism',
+  ])
   ipcMain.handle(CHANNELS.getSetting, (_e, key: string) => {
     if (!RENDERER_SETTINGS.has(key)) {
       throw new Error(`setting '${key}' is not renderer-accessible`)
@@ -156,7 +168,17 @@ export function registerIpc(
     return db.setSetting(key, value)
   })
   ipcMain.handle(CHANNELS.listComments, (_e, ticketId) => db.listComments(ticketId))
-  ipcMain.handle(CHANNELS.addComment, (_e, ticketId, body) => db.addComment(ticketId, 'human', body, 'note'))
+  ipcMain.handle(CHANNELS.addComment, (_e, ticketId, body) => {
+    const comment = db.addComment(ticketId, 'human', body, 'note')
+    // Fire-and-forget: a resume runs an agent for minutes; the comment must
+    // return now. resumeIfBlocked no-ops unless this is a blocked child task.
+    // The terminal catch matters: this handler itself writes to the db, and an
+    // unhandled rejection on a void-discarded promise would kill the process.
+    void resumeIfBlocked({ db, providers }, ticketId)
+      .catch((err) => db.addComment(ticketId, 'kumpas', `Resume failed: ${String(err)}`, 'note'))
+      .catch((err) => console.error(`kumpas: resume of ticket ${ticketId} failed`, err))
+    return comment
+  })
   ipcMain.handle(CHANNELS.listAttachments, (_e, ticketId) => db.listAttachments(ticketId))
   ipcMain.handle(CHANNELS.listRuns, (_e, ticketId) => db.listRuns(ticketId))
   ipcMain.handle(CHANNELS.pickFiles, async () => {

@@ -21,7 +21,7 @@ test('creating a project seeds the 4 default columns in order', () => {
   const p = db.createProject('demo', '/repo/demo')
   const cols = db.listColumns(p.id)
   expect(cols.map((c) => c.name)).toEqual(['Backlog', 'In Progress', 'Review', 'Done'])
-  expect(cols.map((c) => c.role)).toEqual(['todo', 'in_progress', 'review', null])
+  expect(cols.map((c) => c.role)).toEqual(['todo', 'in_progress', 'review', 'done'])
 })
 
 test('getColumnByRole finds the tagged column and throws when absent', () => {
@@ -429,4 +429,37 @@ test('parent_id is immutable through updateTicketFields', () => {
   const after = db.updateTicketFields(child.id, { parentId: null, title: 'renamed' } as never)
   expect(after.title).toBe('renamed')
   expect(after.parentId).toBe(epic.id) // patch key silently ignored, like kind
+})
+
+test('new projects seed a Done column carrying the done role', () => {
+  const db = fresh()
+  const p = db.createProject('demo', '/repo/demo')
+  const done = db.getColumnByRole(p.id, 'done')
+  expect(done.name).toBe('Done')
+  expect(done.position).toBe(3)
+})
+
+test('migration v8 upgrades an existing v7 db and gives Done the done role', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kumpas-mig8-'))
+  const file = join(dir, 'v7.db')
+  // Build a genuine v7 database by replaying the first seven released migrations.
+  const raw = new Database(file)
+  for (const sql of MIGRATIONS.slice(0, 7)) raw.exec(sql)
+  raw.pragma('user_version = 7')
+  raw.prepare(`INSERT INTO projects (name, repo_path) VALUES ('demo', '/repo/demo')`).run()
+  raw.prepare(
+    `INSERT INTO columns (project_id, name, position, role) VALUES (1, 'Backlog', 0, 'todo')`,
+  ).run()
+  raw.prepare(
+    `INSERT INTO columns (project_id, name, position, role) VALUES (1, 'Done', 1, NULL)`,
+  ).run()
+  raw.prepare(
+    `INSERT INTO columns (project_id, name, position, role) VALUES (1, 'Icebox', 2, NULL)`,
+  ).run()
+  raw.close()
+
+  const db = new Db(file) // opening migrates v7 → v8
+  expect(db.getColumnByRole(1, 'done').name).toBe('Done')
+  // Other role-less columns keep role NULL — only an exact 'Done' match is claimed.
+  expect(db.listColumns(1).find((c) => c.name === 'Icebox')?.role).toBeNull()
 })

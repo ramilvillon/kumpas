@@ -1,0 +1,264 @@
+import type { Db } from './db.js'
+import type { Run, Ticket } from './types.js'
+import { dispatch, type DispatchDeps } from './dispatch.js'
+import {
+  addTaskWorktree, commitAll, ensureEpicBranch, isTaskWorktreeDirty, mergeTaskBranch,
+  removeTaskWorktree, type MergeResult,
+} from './git.js'
+
+// The git seam exists so the orchestrator tests don't need a real repo; the
+// helpers themselves are covered by git.test.ts against real temp repos.
+export interface ExecGit {
+  ensureEpicBranch(repoPath: string, epicId: number): string
+  addTaskWorktree(repoPath: string, epicId: number, taskId: number): string
+  removeTaskWorktree(repoPath: string, taskId: number): void
+  mergeTaskBranch(repoPath: string, epicId: number, taskId: number): MergeResult
+  commitAll(worktreePath: string, message: string): boolean
+  isTaskWorktreeDirty(repoPath: string, taskId: number): boolean
+}
+
+const realGit: ExecGit = {
+  ensureEpicBranch, addTaskWorktree, removeTaskWorktree, mergeTaskBranch, commitAll,
+  isTaskWorktreeDirty,
+}
+
+export interface ExecutionDeps extends DispatchDeps {
+  git?: ExecGit
+}
+
+// Comments Kumpas writes itself. Deliberately NOT 'human': a human comment is
+// the blocked-resume trigger (resumeIfBlocked), so this author must differ.
+const SYSTEM_AUTHOR = 'kumpas'
+
+// ponytail: in-memory guards, matching planning.ts — one window, one process.
+// The DB columns remain the source of truth, so a restart just clears them.
+const batchesInFlight = new Set<number>()
+const inFlightTasks = new Set<number>()
+
+function autoMerge(db: Db): boolean {
+  return (db.getSetting('exec:autoMerge') ?? '1') !== '0'
+}
+
+function parallelism(db: Db): number {
+  const n = Number(db.getSetting('exec:parallelism') ?? '3')
+  return Number.isInteger(n) && n >= 1 && n <= 10 ? n : 3
+}
+
+function readyChildren(db: Db, epic: Ticket): Ticket[] {
+  const todo = db.getColumnByRole(epic.projectId, 'todo').id
+  return db.listTickets(epic.projectId).filter(
+    (t) =>
+      t.parentId === epic.id && t.kind === 'task' && t.columnId === todo &&
+      !t.blocked && t.assigneeAgentId !== null && !inFlightTasks.has(t.id),
+  )
+}
+
+function commitMessage(t: Ticket): string {
+  return `kumpas: task ${t.id} — ${t.title}`
+}
+
+// Never rejects — guaranteed by the outer catch, not by hope: a throw from the
+// error handling itself (a locked db) would reject this child's promise, and the
+// siblings Promise.race left unobserved then take the whole process down.
+// A task that never produced a run returns the reason instead of throwing, so
+// manual dispatch can show it without the throw escaping runBatch's children.
+async function runChild(
+  deps: ExecutionDeps, git: ExecGit, repoPath: string, child: Ticket,
+  agentId: number = child.assigneeAgentId as number,
+): Promise<Run | { error: string }> {
+  const { db } = deps
+  // batch loop and manual dispatch must not collide
+  if (inFlightTasks.has(child.id)) return { error: `task ${child.id} is already running` }
+  inFlightTasks.add(child.id)
+  try {
+    try {
+      const wt = git.addTaskWorktree(repoPath, child.parentId as number, child.id)
+      const run = await dispatch(deps, child.id, agentId, wt)
+      if (run.status === 'success') {
+        // A failed commit must not rewind a ticket dispatch already moved to
+        // review — the work is done, only the commit step failed.
+        try {
+          git.commitAll(wt, commitMessage(child))
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          db.addComment(child.id, SYSTEM_AUTHOR, `Could not commit this task's worktree: ${message}`, 'note')
+        }
+      }
+      return run
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      db.addComment(child.id, SYSTEM_AUTHOR, `Batch could not run this task: ${message}`, 'note')
+      db.setTicketColumn(child.id, db.getColumnByRole(child.projectId, 'todo').id)
+      return { error: message }
+    }
+  } catch (err) {
+    // Reporting the failure failed. Nothing left that can be trusted to record
+    // it, so log and let the rest of the batch finish.
+    console.error(`kumpas: task ${child.id} failed and could not be recorded`, err)
+    return { error: err instanceof Error ? err.message : String(err) }
+  } finally {
+    inFlightTasks.delete(child.id)
+  }
+}
+
+// Manual Dispatch from the UI. A planned child must run in its worktree no
+// matter which path started it (spec §2) — main must not decide this.
+export async function execDispatch(
+  deps: ExecutionDeps, ticketId: number, agentId: number,
+): Promise<Run> {
+  const { db } = deps
+  const ticket = db.getTicket(ticketId)
+  if (ticket.kind !== 'task' || ticket.parentId === null) {
+    return dispatch(deps, ticketId, agentId) // ordinary ticket: the user's repo, as before
+  }
+  const git = deps.git ?? realGit
+  const repoPath = db.getProject(ticket.projectId).repoPath
+  // task/{id} is cut from the epic tip, which may not exist yet: a child can be
+  // dispatched by hand before any batch has run.
+  git.ensureEpicBranch(repoPath, ticket.parentId)
+  const res = await runChild(deps, git, repoPath, ticket, agentId)
+  // The real reason, not a generic one: an archived agent or an unusable
+  // worktree has to reach the board's result line. runChild already recorded it
+  // as a comment, so this throw only carries it — it cannot escape a batch.
+  if ('error' in res) throw new Error(res.error)
+  return res
+}
+
+export async function runBatch(
+  deps: ExecutionDeps, epicId: number,
+): Promise<{ dispatched: number }> {
+  const { db } = deps
+  const git = deps.git ?? realGit
+  const epic = db.getTicket(epicId)
+  if (epic.kind !== 'epic') throw new Error('run batch works on an epic ticket')
+  if (batchesInFlight.has(epicId)) throw new Error('a batch is already running for this epic')
+  const project = db.getProject(epic.projectId)
+  // Before any ticket is touched: a repo problem must fail the batch, not half-run it.
+  git.ensureEpicBranch(project.repoPath, epicId)
+
+  batchesInFlight.add(epicId)
+  // No auto-retry: a child that failed returns to todo, so without this the
+  // loop would pick it up again forever.
+  const attempted = new Set<number>()
+  const running = new Set<Promise<Run | { error: string }>>()
+  let dispatched = 0
+  try {
+    for (;;) {
+      while (running.size < parallelism(db)) {
+        const next = readyChildren(db, epic).find((t) => !attempted.has(t.id))
+        if (!next) break
+        attempted.add(next.id)
+        dispatched++
+        const p = runChild(deps, git, project.repoPath, next).finally(() => running.delete(p))
+        running.add(p)
+      }
+      if (running.size === 0) break
+      await Promise.race(running)
+    }
+  } finally {
+    batchesInFlight.delete(epicId)
+  }
+  return { dispatched }
+}
+
+// ponytail: migration v8 name-matches "Done", so a project that renamed the
+// column has no done-role column. Approve then records the outcome and leaves
+// the ticket in review rather than inventing a column.
+function moveToDone(db: Db, ticket: Ticket): void {
+  const done = db.listColumns(ticket.projectId).find((c) => c.role === 'done')
+  if (done) {
+    db.setTicketColumn(ticket.id, done.id)
+    return
+  }
+  db.addComment(
+    ticket.id, SYSTEM_AUTHOR,
+    'Approved, but no column carries the "done" role — move this ticket yourself.', 'note',
+  )
+}
+
+// ponytail: no in-flight guard — this function's body has no `await`, so it
+// runs atomically with respect to the event loop and a second concurrent call
+// always finds the ticket already out of review, refused by the check above.
+// An `await` added ahead of that check would break this guarantee.
+export async function execApprove(
+  deps: ExecutionDeps, ticketId: number,
+): Promise<{ merged: boolean; conflict: boolean; dirty: boolean }> {
+  const { db } = deps
+  const git = deps.git ?? realGit
+  const ticket = db.getTicket(ticketId)
+  if (ticket.parentId === null) throw new Error('approve is for a planned child task')
+  if (ticket.columnId !== db.getColumnByRole(ticket.projectId, 'review').id) {
+    throw new Error('only a ticket in review can be approved')
+  }
+  const project = db.getProject(ticket.projectId)
+
+  // A task whose post-run commit failed sits in review looking exactly like a
+  // clean one. Approving it would merge nothing and then force-remove the
+  // worktree, destroying the work. Refuse, and say what to do about it.
+  if (git.isTaskWorktreeDirty(project.repoPath, ticketId)) {
+    db.addComment(
+      ticketId, SYSTEM_AUTHOR,
+      `Approve stopped: task/${ticketId}'s worktree has uncommitted changes, and ` +
+        `approving would delete them. Commit or discard them, then approve again.`, 'question',
+    )
+    return { merged: false, conflict: false, dirty: true }
+  }
+
+  const merging = autoMerge(db)
+
+  if (merging) {
+    const res = git.mergeTaskBranch(project.repoPath, ticket.parentId, ticketId)
+    if (!res.ok) {
+      // The merge was already aborted, so epic/{id} holds nothing to resolve —
+      // the fix belongs on the task branch.
+      db.addComment(
+        ticketId, SYSTEM_AUTHOR,
+        `Merging task/${ticketId} into epic/${ticket.parentId} failed:\n\n${res.detail}\n\n` +
+          `Fix and commit on task/${ticketId} in its worktree, then reply here to retry the merge.`,
+        'question',
+      )
+      db.setTicketBlocked(ticketId, true) // stays in review; worktree kept
+      return { merged: false, conflict: true, dirty: false }
+    }
+    db.addComment(
+      ticketId, SYSTEM_AUTHOR, `Merged task/${ticketId} into epic/${ticket.parentId}.`, 'note',
+    )
+  }
+
+  git.removeTaskWorktree(project.repoPath, ticketId)
+  db.setTicketBlocked(ticketId, false)
+  moveToDone(db, ticket)
+  return { merged: merging, conflict: false, dirty: false }
+}
+
+// Called from the addComment IPC handler on every human comment; returns null
+// for the overwhelming majority of tickets, which are not blocked children.
+export async function resumeIfBlocked(
+  deps: ExecutionDeps, ticketId: number,
+): Promise<Run | null> {
+  const { db } = deps
+  const git = deps.git ?? realGit
+  const ticket = db.getTicket(ticketId)
+  if (!ticket.blocked || ticket.parentId === null || ticket.assigneeAgentId === null) return null
+  if (inFlightTasks.has(ticketId)) return null // a second reply must not double-dispatch
+
+  // Blocked while in review = the approve merge conflicted. The human resolved
+  // it in the worktree; retry the merge instead of re-running the agent.
+  if (ticket.columnId === db.getColumnByRole(ticket.projectId, 'review').id) {
+    db.setTicketBlocked(ticketId, false)
+    await execApprove(deps, ticketId)
+    return null
+  }
+
+  const project = db.getProject(ticket.projectId)
+  inFlightTasks.add(ticketId)
+  try {
+    db.setTicketBlocked(ticketId, false)
+    const wt = git.addTaskWorktree(project.repoPath, ticket.parentId, ticketId)
+    const run = await dispatch(deps, ticketId, ticket.assigneeAgentId, wt)
+    if (run.status === 'success') git.commitAll(wt, commitMessage(ticket))
+    return run
+  } finally {
+    inFlightTasks.delete(ticketId)
+  }
+}
